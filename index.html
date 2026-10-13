@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sample Box Tracker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{--bg:#f5f6f8;--card:#fff;--ink:#1c2230;--mute:#667085;--line:#e3e6ec;--accent:#1d5fd1;--ok:#1a8f4c;--warn:#c47f00;--hot:#c93a2b;--okbg:#e4f5ea;--warnbg:#fdf1d8;--hotbg:#fbe4e1}
+@media(prefers-color-scheme:dark){:root{--bg:#12151c;--card:#1b2029;--ink:#e8ebf2;--mute:#97a0b3;--line:#2b3240;--accent:#6aa0ff;--ok:#4cc27e;--warn:#e8aa2f;--hot:#ff7b6b;--okbg:#17301f;--warnbg:#33290f;--hotbg:#3a1b17}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 system-ui,Segoe UI,Roboto,sans-serif}
+.wrap{max-width:1200px;margin:0 auto;padding:16px}
+h1{font-size:22px;margin:0 0 2px}
+.sub{color:var(--mute);font-size:13px}
+#drop{margin:14px 0;border:2px dashed var(--line);border-radius:12px;padding:18px;text-align:center;background:var(--card);cursor:pointer}
+#drop.over{border-color:var(--accent);background:var(--okbg)}
+#drop b{color:var(--accent)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.tile .n{font-size:26px;font-weight:700}.tile .l{font-size:12px;color:var(--mute)}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+input,select,button{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:7px 10px}
+button{cursor:pointer}button.pri{background:var(--accent);color:#fff;border-color:var(--accent)}
+#q{flex:1;min-width:200px}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:14px}
+.panel h2{font-size:16px;margin:0 0 8px}
+.sug{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 0;border-top:1px solid var(--line)}
+.sug:first-of-type{border-top:0}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
+.box{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;cursor:pointer}
+.box:hover{border-color:var(--accent)}
+.box .t{display:flex;justify-content:space-between;align-items:baseline}
+.box .t b{font-size:17px}
+.pill{font-size:11px;padding:2px 8px;border-radius:99px;background:var(--bg);color:var(--mute);border:1px solid var(--line)}
+.pill.off{background:var(--warnbg);color:var(--warn);border-color:transparent}
+.meter{height:10px;border-radius:99px;background:var(--bg);margin:10px 0 6px;overflow:hidden;border:1px solid var(--line)}
+.meter i{display:block;height:100%}
+.f-ok{background:var(--ok)}.f-low{background:var(--warn)}.f-hot{background:var(--hot)}
+.meta{font-size:12px;color:var(--mute);display:flex;justify-content:space-between;gap:6px;flex-wrap:wrap}
+.tag{font-size:11px;font-weight:600;padding:2px 7px;border-radius:6px}
+.tag.merge{background:var(--warnbg);color:var(--warn)}.tag.full{background:var(--hotbg);color:var(--hot)}
+dialog{border:1px solid var(--line);border-radius:14px;background:var(--card);color:var(--ink);padding:0;width:min(760px,96vw);max-height:90vh}
+dialog::backdrop{background:#0008}
+.dh{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.dh h3{margin:0;flex:1;font-size:18px}
+.db{padding:6px 16px 16px;overflow:auto;max-height:68vh}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+th{color:var(--mute);font-weight:600;position:sticky;top:0;background:var(--card)}
+tr.pulled td{opacity:.45;text-decoration:line-through}
+details{margin-top:8px}summary{cursor:pointer;color:var(--mute);font-size:13px}
+.msg{padding:10px 12px;border-radius:8px;background:var(--hotbg);color:var(--hot);margin-bottom:12px;display:none}
+.empty{text-align:center;color:var(--mute);padding:30px}
+@media(max-width:560px){.wrap{padding:12px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Sample Box Tracker</h1>
+  <div class="sub">Internal color / CAD reference samples &mdash; which box, what's inside, how full. <span id="stamp"></span> <b id="sync" class="pill"></b></div>
+
+  <div id="drop"><b>Drop the sample sheet here</b> (.xlsx / .csv) or click to choose. Only Timestamp, Job_Number, Inventory_Item and Sample Location are read &mdash; everything else is ignored.
+    <input type="file" id="file" accept=".xlsx,.xls,.csv" hidden></div>
+  <div id="err" class="msg"></div>
+
+  <div id="app" hidden>
+    <div class="tiles" id="tiles"></div>
+
+    <div class="panel" id="mergePanel"></div>
+
+    <div class="bar">
+      <input id="q" type="search" placeholder="Find an item # or job # (e.g. 115403) &rarr; which box?">
+      <select id="filter">
+        <option value="all">All boxes</option>
+        <option value="Main">Main location</option>
+        <option value="Overflow">Overflow location</option>
+        <option value="open">Not full</option>
+        <option value="full">Full</option>
+        <option value="merge">Can be consolidated</option>
+      </select>
+      <select id="sort">
+        <option value="num">Sort: box #</option>
+        <option value="fill">Sort: emptiest first</option>
+      </select>
+      <button id="addBtn" class="pri">+ Add sample</button>
+      <button id="settings">Settings</button>
+    </div>
+    <div id="search" class="panel" hidden></div>
+    <div class="grid" id="grid"></div>
+
+    <details id="ignored"><summary></summary><div id="ignoredList" class="sub" style="margin-top:6px"></div></details>
+  </div>
+</div>
+
+<datalist id="boxlist"></datalist>
+<dialog id="dlg"><div class="dh"><h3 id="dt"></h3><span id="dctl"></span><button id="dclose">Close</button></div><div class="db" id="dbody"></div></dialog>
+
+<script>
+"use strict";
+const LS = 'sampleBoxTracker.v1';
+let state = load();           // {cap:100, boxMeta:{id:{loc,cap}}, pulled:{rowKey:1}, rows:[...], stamp}
+function load(){ try{ const s=JSON.parse(localStorage.getItem(LS)); if(s&&s.rows){ s.manual=s.manual||[]; return s; } }catch(e){} return {cap:100,boxMeta:{},pulled:{},manual:[],rows:[],stamp:null}; }
+function save(){ try{ localStorage.setItem(LS, JSON.stringify(state)); }catch(e){} }
+
+/* ---------- shared backend (Google Apps Script + Google Sheet) ----------
+   Leave BACKEND_URL empty to run local-only. Every change is queued in an outbox, sent as one small
+   idempotent write, and the page re-reads the shared data only when the server's version number moved.
+   Idle polling is a tiny {v} reply (no sheet is opened server-side), at most once every 2 minutes per open tab. */
+const BACKEND_URL = 'https://script.google.com/macros/s/AKfycbwHG1fcnBDV5GWbEc--WLKuvC9GyyIYHSTUvbPWsJDCvUsEeOvd_jeK5KSBGA70OMBE/exec';
+const OB = 'sampleBoxTracker.outbox';
+let outbox = (()=>{ try{ return JSON.parse(localStorage.getItem(OB))||[]; }catch(e){ return []; } })();
+let flushing=false, polling=false, lastSync=null, syncErr=null;
+const saveOutbox=()=>{ try{ localStorage.setItem(OB, JSON.stringify(outbox)); }catch(e){} };
+function op(o){ if(!BACKEND_URL) return; outbox.push(o); saveOutbox(); showSync(); flush(); }
+const opMeta=box=>op({op:'setMeta',box,meta:state.boxMeta[box]||null});
+const opPull=k=>op({op:'setPull',pull:Object.assign({k},state.pulled[k])});
+async function flush(){
+  if(!BACKEND_URL||flushing||!outbox.length) return;
+  flushing=true;
+  const batch=outbox.slice();
+  try{
+    // text/plain keeps this a "simple" CORS request (no preflight), which Apps Script requires
+    const r=await fetch(BACKEND_URL,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({ops:batch})});
+    const j=await r.json();
+    if(!j.ok) throw new Error(j.error||'server error');
+    outbox=outbox.slice(batch.length); saveOutbox(); syncErr=null;
+    if(state.v!=null && j.v===state.v+1) state.v=j.v;   // nobody else wrote in between: no refetch needed
+    lastSync=Date.now(); save();
+  }catch(e){ syncErr=String(e.message||e); setTimeout(flush,15000); }
+  flushing=false; showSync();
+  if(outbox.length&&!syncErr) flush();
+}
+async function poll(force){
+  if(!BACKEND_URL||polling) return;
+  if(outbox.length){ await flush(); if(outbox.length) return; }   // never overwrite our own unsent changes
+  polling=true;
+  try{
+    const r=await fetch(BACKEND_URL+'?since='+(force?'':(state.v==null?'':state.v)));
+    const j=await r.json();
+    if(!j.ok) throw new Error(j.error||'server error');
+    if(!j.unchanged && j.state){
+      const s=j.state;
+      state.cap=s.cap; state.stamp=s.stamp; state.ignored=s.ignored; state.boxMeta=s.boxMeta; state.pulled=s.pulled;
+      state.rows=s.rows; state.manual=s.manual; state.v=j.v; save();
+      const dlg=$('dlg');
+      render();
+      if(dlg.open && curBox && !dlg.contains(document.activeElement)) openBox(curBox);
+    } else { state.v=j.v; }
+    lastSync=Date.now(); syncErr=null;
+  }catch(e){ syncErr=String(e.message||e); }
+  polling=false; showSync();
+}
+function showSync(){
+  const el=document.getElementById('sync'); if(!el) return;
+  if(!BACKEND_URL){ el.textContent='Local only (not shared)'; return; }
+  el.textContent = syncErr ? `⚠ Offline – ${outbox.length} change${outbox.length==1?'':'s'} waiting` :
+    outbox.length ? 'Saving…' : lastSync ? 'Shared · synced '+new Date(lastSync).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}) : 'Connecting…';
+}
+let curBox=null;
+
+/* ---------- location normalizer: messy free text -> box id or null ---------- */
+function normLoc(raw){
+  const t = String(raw==null?'':raw).trim();
+  if(!t) return {blank:true};
+  let m;
+  if(/calchef/i.test(t)){
+    const rest = t.replace(/calchef/ig,'').replace(/\bbox\b/ig,' ');
+    if(m = rest.match(/\d+/)) return {box:'Calchef '+parseInt(m[0],10), series:'Calchef'};
+    if(m = rest.match(/(^|[^a-z])([a-d])([^a-z]|$)/i)) return {box:'Calchef '+m[2].toUpperCase(), series:'Calchef'};
+    return {text:t};
+  }
+  if(m = t.match(/^(?:box|bx|bo|b0x|nx|bxe)\s*#?\s*(\d+)$/i)) return {box:'Box '+parseInt(m[1],10)};
+  if(/^boxll$/i.test(t)) return {box:'Box 11'};
+  if(m = t.match(/^(?:box|bx)\s*([a-z])$/i)) return {box:'Box '+m[1].toUpperCase()};
+  if(/^\d{1,3}$/.test(t)) return {box:'Box '+parseInt(t,10)};
+  if(/^b8$/i.test(t)) return {box:'Box 8'};
+  return {text:t};
+}
+
+/* ---------- import ---------- */
+function excelDate(v){
+  if(v instanceof Date) return v;
+  if(typeof v==='number') return new Date(Math.round((v-25569)*86400000));
+  const d=new Date(v); return isNaN(d)?null:d;
+}
+function findCol(hdr, names){
+  const norm = s=>String(s).toLowerCase().replace(/[^a-z]/g,'');
+  for(let i=0;i<hdr.length;i++) if(names.includes(norm(hdr[i]))) return i;
+  return -1;
+}
+function ingest(aoa){
+  // find header row (within the first 10 rows)
+  let hi=-1, c;
+  for(let r=0;r<Math.min(10,aoa.length);r++){
+    const loc=findCol(aoa[r],['samplelocation','location']);
+    if(loc>=0){ hi=r; break; }
+  }
+  if(hi<0) throw new Error('Could not find a "Sample Location" column. Make sure the copied sheet has headers: Timestamp, Job_Number, Inventory_Item, Sample Location.');
+  const h=aoa[hi];
+  c={ts:findCol(h,['timestamp','date']), job:findCol(h,['jobnumber','job']), item:findCol(h,['inventoryitem','item','productid']), loc:findCol(h,['samplelocation','location'])};
+  const rows=[], seen=new Set(), ignored={};
+  for(let r=hi+1;r<aoa.length;r++){
+    const a=aoa[r]; if(!a) continue;
+    const n=normLoc(a[c.loc]);
+    if(n.blank) continue;                       // no sample kept for this job
+    if(!n.box){ ignored[n.text]=(ignored[n.text]||0)+1; continue; }   // e.g. "Given to Johana", "1st pass"
+    const d=c.ts>=0?excelDate(a[c.ts]):null;
+    const job=String(a[c.job]==null?'':a[c.job]).replace(/\.0$/,'').trim();
+    let item=String(a[c.item]==null?'':a[c.item]).replace(/\.0$/,'').trim(); if(item==='0') item='';
+    const key=(d?d.getTime():'')+'|'+job+'|'+item+'|'+n.box;
+    if(seen.has(key)) continue; seen.add(key);
+    rows.push({k:(d?d.getTime():'')+'|'+job+'|'+item, box:n.box, series:n.series||'Box', ts:d?d.getTime():null, job, item});
+  }
+  if(!rows.length) throw new Error('No sample boxes found in that file, so nothing was changed.');
+  if(BACKEND_URL && state.rows.length && !confirm(`This replaces the shared sample data for everyone with ${rows.length} rows from this file. Continue?`)) return;
+  state.rows=rows; state.ignored=ignored; state.stamp=Date.now();
+  // The sheet is the source of truth: drop pulls whose row is gone or now sits in a different box
+  // (you relabeled it in the sheet), and manual entries the sheet now already contains.
+  const live=new Map(rows.map(x=>[x.k,x]));
+  for(const k in state.pulled){ if(k.includes('>')) continue; const p=state.pulled[k]; const r=live.get(k)||state.manual.find(x=>x.k===k); if(!r||(p.from&&p.from!==r.box)) delete state.pulled[k]; }
+  // pulls on "moved in" copies (key = parentKey>Box) only live as long as their parent pull still points there
+  for(const k in state.pulled){ if(!k.includes('>')) continue; const pk=k.slice(0,k.lastIndexOf('>')), par=state.pulled[pk], dest=k.slice(k.lastIndexOf('>')+1);
+    if(!par||normLoc(par.to).box!==dest) delete state.pulled[k]; }
+  const have=new Set(rows.filter(r=>r.item).map(r=>r.item+'|'+r.job+'|'+r.box));
+  state.manual=state.manual.filter(x=>!(x.item&&have.has(x.item+'|'+x.job+'|'+x.box)));
+  save(); render();
+  op({op:'import',rows,ignored,stamp:state.stamp,
+      pulled:Object.keys(state.pulled).map(k=>Object.assign({k},state.pulled[k])), manual:state.manual});
+}
+async function readFile(f){
+  const err=document.getElementById('err'); err.style.display='none';
+  try{
+    const buf=await f.arrayBuffer();
+    const wb=XLSX.read(buf,{type:'array',cellDates:true});
+    // use the first sheet that has a Sample Location header
+    let aoa=null;
+    for(const name of wb.SheetNames){
+      const t=XLSX.utils.sheet_to_json(wb.Sheets[name],{header:1,raw:true,defval:''});
+      if(t.slice(0,10).some(r=>findCol(r,['samplelocation','location'])>=0)){ aoa=t; break; }
+    }
+    if(!aoa) throw new Error('No sheet with a "Sample Location" column was found in that file.');
+    ingest(aoa);
+  }catch(e){ err.textContent=e.message; err.style.display='block'; }
+}
+
+/* ---------- model ---------- */
+const meta=id=>state.boxMeta[id]||(state.boxMeta[id]={});
+const capOf=id=>meta(id).cap||state.cap;
+const locOf=id=>meta(id).loc||'Main';
+const isPulled=r=>!!state.pulled[r.k];
+// Every sample row currently known: sheet rows + manual entries, plus a "moved in" copy
+// in the destination box for each pulled sample that was given a new box.
+function effRows(){
+  const out=[];
+  const walk=(r,depth)=>{
+    out.push(r);
+    const p=state.pulled[r.k];
+    if(!p||(p.from&&p.from!==r.box)||!p.to||depth>5) return;
+    const n=normLoc(p.to); if(!n.box) return;              // "Given to Johana" etc: just leaves the boxes
+    walk({k:r.k+'>'+n.box,box:n.box,series:n.series||'Box',ts:p.at||r.ts,job:r.job,item:r.item,from:r.box},depth+1);
+  };
+  state.rows.concat(state.manual).forEach(r=>walk(r,0));
+  return out;
+}
+function boxes(){
+  const m={};
+  for(const r of effRows()){ const b=m[r.box]||(m[r.box]={id:r.box,series:r.series,rows:[],left:0}); b.rows.push(r); if(!isPulled(r)) b.left++; }
+  const list=Object.values(m);
+  list.forEach(b=>{ const mt=meta(b.id); b.cap=capOf(b.id); b.loc=locOf(b.id); b.full=b.left>=b.cap; b.pct=b.left/b.cap; b.num=parseInt(b.id.replace(/\D/g,''),10)||999; });
+  return list.filter(b=>b.left>0);   // boxes with nothing left are retired
+}
+function suggestions(list){
+  // greedy: smallest box moves into the fullest box that can still hold it (prefer same location)
+  const used=new Set(), out=[];
+  const asc=[...list].sort((a,b)=>a.left-b.left);
+  for(const a of asc){
+    if(used.has(a.id)) continue;
+    const cands=list.filter(b=>b.id!==a.id && !used.has(b.id) && b.series===a.series && a.left+b.left<=b.cap)
+      .sort((x,y)=>(y.loc===a.loc)-(x.loc===a.loc) || y.left-x.left);
+    if(!cands.length) continue;
+    const t=cands[0]; used.add(a.id); used.add(t.id);
+    out.push({from:a,to:t,total:a.left+t.left});
+  }
+  return out;
+}
+
+/* ---------- render ---------- */
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fdate=ts=>ts?new Date(ts).toLocaleDateString(undefined,{year:'2-digit',month:'short',day:'numeric'}):'—';
+function fillClass(p){return p>=0.9?'f-hot':p<=0.5?'f-low':'f-ok';}
+function render(){
+  const has=state.rows.length>0||state.manual.length>0;
+  $('app').hidden=!has;
+  $('stamp').textContent=state.stamp?' Data loaded '+new Date(state.stamp).toLocaleString()+'.':'';
+  if(!has) return;
+  const list=boxes(), sug=suggestions(list);
+  const mergeable=new Set(); sug.forEach(s=>{mergeable.add(s.from.id);});
+  const total=list.reduce((a,b)=>a+b.left,0), over=list.filter(b=>b.loc==='Overflow').length;
+  $('tiles').innerHTML=[
+    [list.length,'active boxes'],[total,'samples on hand'],[over,'in overflow location'],[sug.length,'merges possible'],
+  ].map(([n,l])=>`<div class="tile"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
+
+  $('mergePanel').innerHTML = `<h2>Consolidation suggestions</h2>` + (sug.length ? sug.map(s=>`
+    <div class="sug"><span><b>${esc(s.from.id)}</b> (${s.from.left}${s.from.loc!=='Main'?', '+s.from.loc:''}) &rarr; <b>${esc(s.to.id)}</b> (${s.to.left}${s.to.loc!=='Main'?', '+s.to.loc:''})</span>
+    <span class="sub">= ${s.total} of ${s.to.cap} after merge</span>
+    <button data-open="${esc(s.from.id)}">See what moves</button></div>`).join('')
+    : '<div class="sub">No two boxes fit together right now.</div>')
+    + `<div class="sub" style="margin-top:6px">After combining, change those rows' Sample Location in the sheet to the surviving box and drop the sheet back in.</div>`;
+
+  let v=list.filter(b=>{
+    const f=$('filter').value;
+    return f==='all' || (f==='merge'?mergeable.has(b.id):f==='full'?b.full:f==='open'?!b.full:b.loc===f);
+  });
+  v.sort($('sort').value==='fill'?(a,b)=>a.pct-b.pct:(a,b)=>a.series.localeCompare(b.series)||a.num-b.num);
+  $('grid').innerHTML = v.length ? v.map(b=>`
+    <div class="box" data-open="${esc(b.id)}">
+      <div class="t"><b>${esc(b.id)}</b><span class="pill ${b.loc==='Overflow'?'off':''}">${esc(b.loc)}</span></div>
+      <div class="meter"><i class="${fillClass(b.pct)}" style="width:${Math.min(100,Math.round(b.pct*100))}%"></i></div>
+      <div class="meta"><span>${b.left} / ${b.cap}</span>
+        ${b.full?'<span class="tag full">FULL</span>':mergeable.has(b.id)?'<span class="tag merge">merge candidate</span>':'<span>'+Math.round(b.pct*100)+'%</span>'}</div>
+    </div>`).join('') : '<div class="empty">No boxes match.</div>';
+
+  const ig=state.ignored||{}, ik=Object.keys(ig).sort((a,b)=>ig[b]-ig[a]);
+  $('ignored').querySelector('summary').textContent=`Location entries ignored (not a box): ${ik.reduce((a,k)=>a+ig[k],0)} rows, ${ik.length} different texts`;
+  $('ignoredList').textContent=ik.map(k=>`${k} (${ig[k]})`).join(' · ');
+  $('boxlist').innerHTML=list.sort((a,b)=>a.series.localeCompare(b.series)||a.num-b.num).map(b=>`<option value="${esc(b.id)}">`).join('');
+  runSearch();
+}
+function runSearch(){
+  const q=$('q').value.trim(), p=$('search');
+  if(!q){p.hidden=true;return;}
+  const hit=effRows().filter(r=>!isPulled(r)&&(r.item===q||r.job===q||r.item.includes(q)&&q.length>=4));
+  p.hidden=false;
+  if(!hit.length){p.innerHTML=`<div class="sub">Nothing on hand matching “${esc(q)}”.</div>`;return;}
+  const by={}; hit.forEach(r=>(by[r.box]=by[r.box]||[]).push(r));
+  p.innerHTML=`<h2>“${esc(q)}” is in:</h2>`+Object.keys(by).map(b=>`<div class="sug"><b>${esc(b)}</b><span class="pill ${locOf(b)==='Overflow'?'off':''}">${locOf(b)}</span><span class="sub">${by[b].length} sample${by[b].length>1?'s':''} · item ${[...new Set(by[b].map(r=>r.item))].join(', ')} · job ${[...new Set(by[b].map(r=>r.job))].join(', ')}</span><button data-open="${esc(b)}">Open</button></div>`).join('');
+}
+
+/* ---------- box detail ---------- */
+function openBox(id){
+  curBox=id;
+  const rows=effRows().filter(r=>r.box===id).sort((a,c)=>(c.ts||0)-(a.ts||0));
+  const left=rows.filter(r=>!isPulled(r)).length, cap=capOf(id), isFull=left>=cap;
+  $('dt').textContent=`${id} — ${left} of ${cap}${isFull?' (FULL)':''}`;
+  $('dctl').innerHTML=`<select id="dloc"><option>Main</option><option>Overflow</option></select>
+    <label class="sub">capacity <input id="dcap" type="number" min="1" style="width:70px" value="${cap}"></label>
+    <button id="dfull">${meta(id).full&&isFull?'Unmark full':'Mark as full'}</button> <button id="dadd">+ Add sample</button>`;
+  $('dloc').value=locOf(id);
+  $('dloc').onchange=e=>{meta(id).loc=e.target.value;save();opMeta(id);render();};
+  $('dcap').onchange=e=>{const n=parseInt(e.target.value,10);if(n>0)meta(id).cap=n;else delete meta(id).cap;save();opMeta(id);render();openBox(id);};
+  // Marking full pins this box's capacity at what it holds right now (boxes fill at different counts).
+  $('dfull').onclick=()=>{ const m=meta(id); if(m.full&&isFull){delete m.full;delete m.cap;} else {m.full=true;m.cap=Math.max(1,left);} save();opMeta(id);render();openBox(id); };
+  $('dadd').onclick=()=>openAdd(id);
+  const note=r=>{
+    const p=state.pulled[r.k];
+    if(p){ const to=p.to||''; const n=to?normLoc(to):{};
+      return `<input data-to="${esc(r.k)}" list="boxlist" value="${esc(to)}" placeholder="Now at: pick a box or type where" style="width:100%;min-width:170px">${to&&!n.box?'<div class="sub">not a box – leaves the boxes</div>':''}`; }
+    return (r.from?`<span class="pill">moved in from ${esc(r.from)}</span> `:'')+(r.manual?`<span class="pill">manual</span> <button data-del="${esc(r.k)}" title="Delete this manual entry">✕</button>`:'');
+  };
+  $('dbody').innerHTML=`<table><thead><tr><th>Pulled</th><th>Item #</th><th>Job #</th><th>Date</th><th>Location / note</th></tr></thead><tbody>`+
+    rows.map(r=>`<tr class="${isPulled(r)?'pulled':''}"><td><input type="checkbox" data-pull="${esc(r.k)}" ${isPulled(r)?'checked':''}></td><td>${esc(r.item||'—')}</td><td>${esc(r.job||'—')}</td><td>${fdate(r.ts)}</td><td class="np">${note(r)}</td></tr>`).join('')+`</tbody></table>
+    <div class="sub" style="margin-top:8px">Tick “Pulled” when a sample leaves this box, then say where it is now (an existing box, a new box you type, or leave blank if it's gone). “Mark as full” sets this box's capacity to what it holds right now.</div>`;
+  if(!$('dlg').open) $('dlg').showModal();
+  $('dbody').onchange=e=>{
+    const t=e.target;
+    if(t.dataset.pull!=null){
+      if(t.checked){ state.pulled[t.dataset.pull]={from:id,to:'',at:Date.now()}; save(); opPull(t.dataset.pull); } else { delete state.pulled[t.dataset.pull]; save(); op({op:'clearPull',k:t.dataset.pull}); }
+      render(); openBox(id);
+      if(t.checked){ const i=$('dbody').querySelector(`[data-to="${CSS.escape(t.dataset.pull)}"]`); if(i) i.focus(); }
+    } else if(t.dataset.to!=null){
+      const p=state.pulled[t.dataset.to]; if(!p) return;
+      const v=t.value.trim(), n=normLoc(v); p.to=n.box||v; save(); opPull(t.dataset.to); render(); openBox(id);
+    }
+  };
+  $('dbody').onclick=e=>{ const k=e.target.dataset&&e.target.dataset.del; if(!k) return;
+    if(confirm('Delete this manual entry?')){ state.manual=state.manual.filter(x=>x.k!==k); delete state.pulled[k]; save(); op({op:'delManual',k}); render(); openBox(id); } };
+}
+
+/* ---------- add a sample by hand ---------- */
+function openAdd(preBox){
+  curBox=null;
+  $('dt').textContent='Add a sample'; $('dctl').innerHTML=''; $('dbody').onchange=null; $('dbody').onclick=null;
+  const today=new Date().toISOString().slice(0,10);
+  $('dbody').innerHTML=`<p><label>Box<br><input id="abox" list="boxlist" value="${esc(preBox||'')}" placeholder="pick a box or type a new one, e.g. Box 42"></label></p>
+    <p><label>Item # (Inventory_Item)<br><input id="aitem" inputmode="numeric"></label></p>
+    <p><label>Job # (optional)<br><input id="ajob" inputmode="numeric"></label></p>
+    <p><label>Date<br><input id="adate" type="date" value="${today}"></label></p>
+    <p id="amsg" class="sub"></p>
+    <p><button class="pri" id="asave">Add to box</button></p>
+    <div class="sub">Entries added here are kept on this device and survive re-importing the sheet. If the sheet later contains the same item/job in that box, the manual copy is dropped so nothing is counted twice.</div>`;
+  if(!$('dlg').open) $('dlg').showModal();
+  $('asave').onclick=()=>{
+    const n=normLoc($('abox').value), item=$('aitem').value.trim(), job=$('ajob').value.trim(), msg=$('amsg');
+    if(!n.box){ msg.textContent='Box must look like “Box 12” or “Calchef 2”.'; return; }
+    if(!item&&!job){ msg.textContent='Enter an item # or a job #.'; return; }
+    const d=$('adate').value?new Date($('adate').value+'T12:00:00').getTime():Date.now();
+    state.manual.push({k:'m'+Date.now()+Math.random().toString(36).slice(2,6),box:n.box,series:n.series||'Box',ts:d,job,item,manual:true});
+    save(); op({op:'addManual',entry:state.manual[state.manual.length-1]}); render();
+    $('aitem').value=''; $('ajob').value=''; msg.textContent=`Added to ${n.box}. Add another, or close.`; $('aitem').focus();
+  };
+}
+
+/* ---------- settings ---------- */
+function openSettings(){
+  curBox=null;
+  $('dt').textContent='Settings'; $('dctl').innerHTML='';
+  $('dbody').innerHTML=`<p>Default box capacity (samples): <input id="scap" type="number" min="1" value="${state.cap}" style="width:80px"></p>
+  <p class="sub">Individual boxes can override this in their own window. Used for the fill bars and for deciding which boxes fit together.</p>
+  ${BACKEND_URL?'<p class="sub">Data is shared with all QA techs. To refresh it, drop a new sheet on the main page.</p>':'<p><button id="sclear">Clear imported data &amp; pulls on this device</button></p>'}`;
+  $('dbody').onchange=null;
+  $('scap').onchange=e=>{const n=parseInt(e.target.value,10); if(n>0){state.cap=n;save();op({op:'setCap',cap:n});render();}};
+  if($('sclear')) $('sclear').onclick=()=>{ if(confirm('Remove all imported data and pull marks from this device?')){state={cap:state.cap,boxMeta:state.boxMeta,pulled:{},manual:[],rows:[],stamp:null};save();$('dlg').close();render();} };
+  $('dlg').showModal();
+}
+
+/* ---------- wiring ---------- */
+const drop=$('drop'), fi=$('file');
+drop.onclick=()=>fi.click();
+fi.onchange=()=>fi.files[0]&&readFile(fi.files[0]);
+['dragover','dragenter'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over');}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over');}));
+drop.addEventListener('drop',e=>{const f=e.dataTransfer.files[0]; if(f) readFile(f);});
+window.addEventListener('dragover',e=>e.preventDefault()); window.addEventListener('drop',e=>{e.preventDefault(); if(e.target!==drop&&!drop.contains(e.target)){const f=e.dataTransfer.files[0]; if(f) readFile(f);}});
+document.addEventListener('click',e=>{const o=e.target.closest('[data-open]'); if(o) openBox(o.dataset.open);});
+$('dclose').onclick=()=>{curBox=null;$('dlg').close();};
+['q','filter','sort'].forEach(i=>$(i).addEventListener(i==='q'?'input':'change',render));
+$('settings').onclick=openSettings;
+$('addBtn').onclick=()=>openAdd('');
+render();
+showSync();
+poll();
+setInterval(()=>{ if(!document.hidden) poll(); }, 120000);
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden) poll(); });
+window.addEventListener('online',()=>{ flush(); poll(); });
+</script>
+</body>
+</html>
