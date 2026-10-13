@@ -57,7 +57,7 @@ details{margin-top:8px}summary{cursor:pointer;color:var(--mute);font-size:13px}
 </head>
 <body>
 <div class="wrap">
-  <h1>Sample Box Tracker</h1>
+  <h1>Sample Box Tracker <button id="helpBtn" style="float:right;font-size:14px" title="How to use this app">? Help / FAQ</button></h1>
   <div class="sub">Internal color / CAD reference samples &mdash; which box, what's inside, how full. <span id="stamp"></span> <b id="sync" class="pill"></b></div>
 
   <div id="drop"><b>Drop the sample sheet here</b> (.xlsx / .csv) or click to choose. Only Timestamp, Job_Number, Inventory_Item and Sample Location are read &mdash; everything else is ignored.
@@ -415,7 +415,50 @@ function openSettings(){
   $('dlg').showModal();
 }
 
+/* ---------- help / FAQ (English + simple Spanish) ---------- */
+const HELP={
+ en:{title:'Help / FAQ',items:[
+  ['What is this app for?','It shows which box each internal color / CAD reference sample is in, how full every box is, and which boxes can be combined. Everyone who opens this page sees the same data.'],
+  ['How do I read a box card?','The number is the box. “74 / 100” means 74 samples are in it and it holds 100. Green = filling up, orange = mostly empty, red / FULL = no room. “Overflow” means the box is kept in the second location. Tap a card to see what is inside.'],
+  ['How do I find where a sample is?','Type the item # or job # in the search bar at the top. It lists every box that has that sample. Tap Open to see it.'],
+  ['A sample leaves a box (CSR / sales request)','Open the box, tick <b>Pulled</b> on that sample, then in “Now at” pick the box it went to, or type where it is now (for example “Box 12”). If it is gone for good, leave it blank. The count in both boxes updates for everyone.'],
+  ['I tapped Pulled by mistake','Untick it. The sample goes back into the box.'],
+  ['How do I mark a box as full?','Open the box and tap <b>Mark as full</b>. The app remembers that this box is full at today’s count, so boxes with bigger samples can be “full” at fewer samples. Tap <b>Unmark full</b> to undo.'],
+  ['How do I add a sample by hand?','Tap <b>+ Add sample</b> (top, or inside a box). Pick or type the box, enter the item # (and job # if you have it), then tap Add to box. You can add several in a row. To remove one you added by mistake, open the box and tap the ✕ next to it.'],
+  ['How do I combine two boxes?','1) Look at “Consolidation suggestions” at the top. 2) Tap “See what moves” to see the samples. 3) Move them physically. 4) In the Google Sheet, change the Sample Location of those rows to the surviving box. 5) Drop the sheet on this page (next question). The emptied box disappears.'],
+  ['How do I update the data from the Google Sheet?','Copy the 4 columns (Timestamp, Job_Number, Inventory_Item, Sample Location) into an Excel file, then drag it onto the dotted box at the top (or tap it to choose the file). The app only reads those columns and ignores everything else. It asks you to confirm because it <b>replaces the data for everyone</b>. Pulls and manual entries are kept.'],
+  ['Some entries are missing','Only locations that look like a box (Box 12, Bx12, Calchef 2…) are counted. Things like “Given to Johana” or “1st pass” are ignored. See the line “Location entries ignored” at the bottom. Typing “Box 12” the same way every time works best.'],
+  ['What does “Offline – changes waiting” mean?','Your phone or PC lost the connection. Your changes are saved on the device and will send automatically when it is back. Keep the page open until it says “synced”.'],
+  ['What are Main and Overflow?','Where the box is kept. Set it inside the box window. Use the filter at the top to see only one location.']
+ ]},
+ es:{title:'Ayuda / Preguntas',items:[
+  ['¿Para qué sirve esta app?','Muestra en qué caja está cada muestra de referencia (color / CAD), qué tan llena está cada caja y qué cajas se pueden juntar. Todos ven los mismos datos.'],
+  ['¿Cómo leo la tarjeta de una caja?','El número es la caja. “74 / 100” = hay 74 muestras y caben 100. Verde = se está llenando, naranja = casi vacía, rojo / FULL = llena. “Overflow” = la caja está en el segundo lugar. Toca la tarjeta para ver lo que tiene.'],
+  ['¿Cómo encuentro una muestra?','Escribe el número de artículo o de trabajo en la barra de búsqueda. Te dice en qué caja(s) está. Toca Open para verla.'],
+  ['Sacan una muestra de una caja','Abre la caja, marca <b>Pulled</b> en esa muestra y en “Now at” elige la caja a donde fue, o escribe dónde está (por ejemplo “Box 12”). Si ya no existe, déjalo vacío. Los conteos se actualizan para todos.'],
+  ['Marqué Pulled por error','Quita la marca. La muestra vuelve a la caja.'],
+  ['¿Cómo marco una caja como llena?','Abre la caja y toca <b>Mark as full</b>. La app recuerda que esa caja está llena con el número de hoy (las cajas con muestras grandes se llenan con menos). Toca <b>Unmark full</b> para deshacer.'],
+  ['¿Cómo agrego una muestra a mano?','Toca <b>+ Add sample</b>. Elige o escribe la caja, el número de artículo (y de trabajo si lo tienes) y toca Add to box. Para borrar una que agregaste por error, abre la caja y toca la ✕.'],
+  ['¿Cómo junto dos cajas?','1) Mira “Consolidation suggestions” arriba. 2) Toca “See what moves”. 3) Mueve las muestras. 4) En el Google Sheet cambia el Sample Location de esas filas a la caja que se queda. 5) Arrastra el archivo a esta página. La caja vacía desaparece.'],
+  ['¿Cómo actualizo los datos?','Copia las 4 columnas (Timestamp, Job_Number, Inventory_Item, Sample Location) a un archivo de Excel y arrástralo al cuadro punteado de arriba. La app solo lee esas columnas. Te pide confirmar porque <b>cambia los datos para todos</b>. Los Pulled y las muestras manuales se conservan.'],
+  ['Faltan algunas entradas','Solo se cuentan ubicaciones que parecen una caja (Box 12, Bx12, Calchef 2…). “Given to Johana” o “1st pass” se ignoran (ver abajo “Location entries ignored”). Escribe “Box 12” siempre igual.'],
+  ['¿Qué significa “Offline – changes waiting”?','Se perdió la conexión. Tus cambios están guardados y se envían solos cuando regrese. Deja la página abierta hasta que diga “synced”.'],
+  ['¿Qué son Main y Overflow?','Dónde está guardada la caja. Se cambia dentro de la ventana de la caja. Usa el filtro de arriba para ver un solo lugar.']
+ ]}
+};
+let helpLang=(()=>{ try{ return localStorage.getItem('sampleBoxTracker.lang')||'en'; }catch(e){ return 'en'; } })();
+function openHelp(){
+  curBox=null; $('dbody').onchange=null; $('dbody').onclick=null;
+  const h=HELP[helpLang];
+  $('dt').textContent=h.title;
+  $('dctl').innerHTML=`<button id="hlang">${helpLang==='en'?'Español':'English'}</button>`;
+  $('hlang').onclick=()=>{ helpLang=helpLang==='en'?'es':'en'; try{localStorage.setItem('sampleBoxTracker.lang',helpLang);}catch(e){} openHelp(); };
+  $('dbody').innerHTML=h.items.map((q,i)=>`<details ${i===0?'open':''}><summary><b>${q[0]}</b></summary><p style="margin:6px 0 10px">${q[1]}</p></details>`).join('');
+  if(!$('dlg').open) $('dlg').showModal();
+}
+
 /* ---------- wiring ---------- */
+$('helpBtn').onclick=openHelp;
 const drop=$('drop'), fi=$('file');
 drop.onclick=()=>fi.click();
 fi.onchange=()=>fi.files[0]&&readFile(fi.files[0]);
