@@ -106,7 +106,7 @@ dialog{border:1px solid var(--line2);border-radius:16px;background:var(--card);c
 dialog::backdrop{background:rgba(20,14,8,.5);backdrop-filter:blur(5px)}
 .dh{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--card2);border-radius:16px 16px 0 0}
 .dh h3{margin:0;flex:1;font:600 26px var(--serif);letter-spacing:.01em}
-.db{padding:8px 20px 20px;overflow:auto;max-height:68vh}
+.db{padding:8px 20px 20px;overflow-y:auto;overflow-x:hidden;max-height:68vh}
 table{width:100%;border-collapse:collapse;font-size:13.5px}
 th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
 th{color:var(--mute);font:600 11px var(--sans);letter-spacing:.12em;text-transform:uppercase;position:sticky;top:0;background:var(--card)}
@@ -158,6 +158,7 @@ summary::marker{color:var(--accent)}
         <option value="fill">Sort: emptiest first</option>
       </select>
       <button id="addBtn" class="pri">+ Add sample</button>
+      <button id="mergeBtn">Merge / renumber boxes</button>
       <button id="settings">Settings</button>
     </div>
     <div id="search" class="panel" hidden></div>
@@ -174,7 +175,7 @@ summary::marker{color:var(--accent)}
 "use strict";
 const LS = 'sampleBoxTracker.v1';
 let state = load();           // {cap:100, boxMeta:{id:{loc,cap}}, pulled:{rowKey:1}, rows:[...], stamp}
-function load(){ try{ const s=JSON.parse(localStorage.getItem(LS)); if(s&&s.rows){ s.manual=s.manual||[]; return s; } }catch(e){} return {cap:100,boxMeta:{},pulled:{},manual:[],rows:[],stamp:null}; }
+function load(){ try{ const s=JSON.parse(localStorage.getItem(LS)); if(s&&s.rows){ s.manual=s.manual||[]; s.moves=s.moves||[]; return s; } }catch(e){} return {cap:100,boxMeta:{},pulled:{},manual:[],moves:[],rows:[],stamp:null}; }
 function save(){ try{ localStorage.setItem(LS, JSON.stringify(state)); }catch(e){} }
 
 /* ---------- shared backend (Google Apps Script + Google Sheet) ----------
@@ -216,7 +217,7 @@ async function poll(force){
     if(!j.unchanged && j.state){
       const s=j.state;
       state.cap=s.cap; state.stamp=s.stamp; state.ignored=s.ignored; state.boxMeta=s.boxMeta; state.pulled=s.pulled;
-      state.rows=s.rows; state.manual=s.manual; state.v=j.v; save();
+      state.rows=s.rows; state.manual=s.manual; state.moves=s.moves||[]; state.v=j.v; save();
       const dlg=$('dlg');
       render();
       if(dlg.open && curBox && !dlg.contains(document.activeElement)) openBox(curBox);
@@ -292,12 +293,12 @@ function ingest(aoa){
   // The sheet is the source of truth: drop pulls whose row is gone or now sits in a different box
   // (you relabeled it in the sheet), and manual entries the sheet now already contains.
   const live=new Map(rows.map(x=>[x.k,x]));
-  for(const k in state.pulled){ if(k.includes('>')) continue; const p=state.pulled[k]; const r=live.get(k)||state.manual.find(x=>x.k===k); if(!r||(p.from&&p.from!==r.box)) delete state.pulled[k]; }
+  for(const k in state.pulled){ if(k.includes('>')) continue; const p=state.pulled[k]; const r=live.get(k)||state.manual.find(x=>x.k===k); if(!r||(p.from&&resolveBox(p.from,null,p.at)!==resolveBox(r.box,r.ts))) delete state.pulled[k]; }
   // pulls on "moved in" copies (key = parentKey>Box) only live as long as their parent pull still points there
   for(const k in state.pulled){ if(!k.includes('>')) continue; const pk=k.slice(0,k.lastIndexOf('>')), par=state.pulled[pk], dest=k.slice(k.lastIndexOf('>')+1);
     if(!par||normLoc(par.to).box!==dest) delete state.pulled[k]; }
-  const have=new Set(rows.filter(r=>r.item).map(r=>r.item+'|'+r.job+'|'+r.box));
-  state.manual=state.manual.filter(x=>!(x.item&&have.has(x.item+'|'+x.job+'|'+x.box)));
+  const have=new Set(rows.filter(r=>r.item).map(r=>r.item+'|'+r.job+'|'+resolveBox(r.box,r.ts)));
+  state.manual=state.manual.filter(x=>!(x.item&&have.has(x.item+'|'+x.job+'|'+resolveBox(x.box,x.ts))));
   save(); render();
   op({op:'import',rows,ignored,stamp:state.stamp,
       pulled:Object.keys(state.pulled).map(k=>Object.assign({k},state.pulled[k])), manual:state.manual});
@@ -325,16 +326,27 @@ const locOf=id=>meta(id).loc||'Main';
 const isPulled=r=>!!state.pulled[r.k];
 // Every sample row currently known: sheet rows + manual entries, plus a "moved in" copy
 // in the destination box for each pulled sample that was given a new box.
+// Box renumbers / merges are stored as moves {from,to,at}. A sample recorded as `from` on or before `at`
+// now lives in `to`; samples recorded later under the old number are a new physical box and stay put.
+function resolveBox(box,ts,minAt){
+  let b=box;
+  for(const m of state.moves){ if(m.from===b && (minAt!=null ? m.at>minAt : (ts==null||ts<=m.at))) b=m.to; }
+  return b;
+}
+const seriesOf=b=>normLoc(b).series||'Box';
+function disp(r){ const b=resolveBox(r.box,r.ts); return b===r.box?r:Object.assign({},r,{box:b,series:seriesOf(b)}); }
 function effRows(){
   const out=[];
   const walk=(r,depth)=>{
     out.push(r);
     const p=state.pulled[r.k];
-    if(!p||(p.from&&p.from!==r.box)||!p.to||depth>5) return;
+    if(!p||!p.to||depth>5) return;
+    if(p.from&&resolveBox(p.from,null,p.at)!==r.box) return;
     const n=normLoc(p.to); if(!n.box) return;              // "Given to Johana" etc: just leaves the boxes
-    walk({k:r.k+'>'+n.box,box:n.box,series:n.series||'Box',ts:p.at||r.ts,job:r.job,item:r.item,from:r.box},depth+1);
+    const db=resolveBox(n.box,null,p.at);
+    walk({k:r.k+'>'+n.box,box:db,series:seriesOf(db),ts:p.at||r.ts,job:r.job,item:r.item,from:r.box},depth+1);
   };
-  state.rows.concat(state.manual).forEach(r=>walk(r,0));
+  state.rows.concat(state.manual).forEach(r=>walk(disp(r),0));
   return out;
 }
 function boxes(){
@@ -379,7 +391,7 @@ function render(){
   $('mergePanel').innerHTML = `<h2>Consolidation suggestions</h2>` + (sug.length ? sug.map(s=>`
     <div class="sug"><span><b>${esc(s.from.id)}</b> (${s.from.left}${s.from.loc!=='Main'?', '+s.from.loc:''}) &rarr; <b>${esc(s.to.id)}</b> (${s.to.left}${s.to.loc!=='Main'?', '+s.to.loc:''})</span>
     <span class="sub">= ${s.total} of ${s.to.cap} after merge</span>
-    <button data-open="${esc(s.from.id)}">See what moves</button></div>`).join('')
+    <button data-open="${esc(s.from.id)}">See what moves</button> <button data-merge="${esc(s.from.id)}|${esc(s.to.id)}">Merge…</button></div>`).join('')
     : '<div class="sub">No two boxes fit together right now.</div>')
     + `<div class="sub" style="margin-top:6px">After combining, change those rows' Sample Location in the sheet to the surviving box and drop the sheet back in.</div>`;
 
@@ -420,13 +432,14 @@ function openBox(id){
   $('dt').textContent=`${id} — ${left} of ${cap}${isFull?' (FULL)':''}`;
   $('dctl').innerHTML=`<select id="dloc"><option>Main</option><option>Overflow</option></select>
     <label class="sub">capacity <input id="dcap" type="number" min="1" style="width:70px" value="${cap}"></label>
-    <button id="dfull">${meta(id).full&&isFull?'Unmark full':'Mark as full'}</button> <button id="dadd">+ Add sample</button>`;
+    <button id="drename">Change number</button> <button id="dfull">${meta(id).full&&isFull?'Unmark full':'Mark as full'}</button> <button id="dadd">+ Add sample</button>`;
   $('dloc').value=locOf(id);
   $('dloc').onchange=e=>{meta(id).loc=e.target.value;save();opMeta(id);render();};
   $('dcap').onchange=e=>{const n=parseInt(e.target.value,10);if(n>0)meta(id).cap=n;else delete meta(id).cap;save();opMeta(id);render();openBox(id);};
   // Marking full pins this box's capacity at what it holds right now (boxes fill at different counts).
   $('dfull').onclick=()=>{ const m=meta(id); if(m.full&&isFull){delete m.full;delete m.cap;} else {m.full=true;m.cap=Math.max(1,left);} save();opMeta(id);render();openBox(id); };
   $('dadd').onclick=()=>openAdd(id);
+  $('drename').onclick=()=>openMerge([id],id,true);
   const note=r=>{
     const p=state.pulled[r.k];
     if(p){ const to=p.to||''; const n=to?normLoc(to):{};
@@ -469,7 +482,7 @@ function openAdd(preBox){
     const n=normLoc($('abox').value), item=$('aitem').value.trim(), job=$('ajob').value.trim(), msg=$('amsg');
     if(!n.box){ msg.textContent='Box must look like “Box 12” or “Calchef 2”.'; return; }
     if(!item&&!job){ msg.textContent='Enter an item # or a job #.'; return; }
-    const d=$('adate').value?new Date($('adate').value+'T12:00:00').getTime():Date.now();
+    const dv=$('adate').value, d=(!dv||dv===new Date().toISOString().slice(0,10))?Date.now():new Date(dv+'T12:00:00').getTime();
     state.manual.push({k:'m'+Date.now()+Math.random().toString(36).slice(2,6),box:n.box,series:n.series||'Box',ts:d,job,item,manual:true});
     save(); op({op:'addManual',entry:state.manual[state.manual.length-1]}); render();
     $('aitem').value=''; $('ajob').value=''; msg.textContent=`Added to ${n.box}. Add another, or close.`; $('aitem').focus();
@@ -484,11 +497,83 @@ function openSettings(){
   <p class="sub">Individual boxes can override this in their own window. Used for the fill bars and for deciding which boxes fit together.</p>
   ${BACKEND_URL?'<p class="sub">Data is shared with all QA techs. To refresh it, drop a new sheet on the main page.</p>':'<p><button id="sclear">Clear imported data &amp; pulls on this device</button></p>'}`;
   $('dbody').onchange=null;
+  const gs=[...new Set(state.moves.map(m=>m.g))].reverse().slice(0,5).map(g=>{ const ms=state.moves.filter(m=>m.g===g); return {g,txt:ms.map(m=>m.from).join(', ')+' → '+ms[0].to,at:ms[0].at}; });
+  if(gs.length) $('dbody').insertAdjacentHTML('beforeend','<h4 style="font:600 20px var(--serif);margin:14px 0 4px">Recent box changes</h4>'+gs.map(x=>`<div class="sug"><span>${esc(x.txt)}</span><span class="sub">${new Date(x.at).toLocaleDateString()}</span><button data-undo="${x.g}">Undo</button></div>`).join(''));
+  $('dbody').onclick=e=>{ const g=e.target.dataset&&e.target.dataset.undo; if(g&&confirm('Undo this box change?')){ undoMerge(g); openSettings(); } };
   $('scap').onchange=e=>{const n=parseInt(e.target.value,10); if(n>0){state.cap=n;save();op({op:'setCap',cap:n});render();}};
-  if($('sclear')) $('sclear').onclick=()=>{ if(confirm('Remove all imported data and pull marks from this device?')){state={cap:state.cap,boxMeta:state.boxMeta,pulled:{},manual:[],rows:[],stamp:null};save();$('dlg').close();render();} };
+  if($('sclear')) $('sclear').onclick=()=>{ if(confirm('Remove all imported data and pull marks from this device?')){state={cap:state.cap,boxMeta:state.boxMeta,pulled:{},manual:[],moves:[],rows:[],stamp:null};save();$('dlg').close();render();} };
   $('dlg').showModal();
 }
 
+/* ---------- change a box number / merge boxes ---------- */
+const clone=o=>o==null?null:JSON.parse(JSON.stringify(o));
+function applyMerge(froms,to,cap){
+  const g='g'+Date.now().toString(36)+Math.random().toString(36).slice(2,5), at=Date.now();
+  const snap={}; [...froms,to].forEach(b=>{ snap[b]=clone(state.boxMeta[b]); });
+  const tm=state.boxMeta[to]||{}, loc=tm.loc||froms.map(f=>(state.boxMeta[f]||{}).loc).find(Boolean);
+  const nm={}; if(loc) nm.loc=loc; if(cap>0) nm.cap=cap;
+  froms.forEach((f,i)=>{ const mv={g,from:f,to,at,snap:i===0?snap:null}; state.moves.push(mv); op({op:'addMove',move:mv}); });
+  froms.forEach(f=>{ delete state.boxMeta[f]; opMeta(f); });
+  if(Object.keys(nm).length) state.boxMeta[to]=nm; else delete state.boxMeta[to];
+  save(); opMeta(to); render(); return g;
+}
+function undoMerge(g){
+  const first=state.moves.find(m=>m.g===g&&m.snap); if(!first) return;
+  state.moves=state.moves.filter(m=>m.g!==g); op({op:'delMoves',g});
+  for(const b in first.snap){ if(first.snap[b]) state.boxMeta[b]=first.snap[b]; else delete state.boxMeta[b]; opMeta(b); }
+  save(); render();
+}
+function openMerge(pre,result,focusResult){
+  curBox=null; $('dbody').onchange=null; $('dbody').onclick=null;
+  const list=boxes().sort((a,b)=>a.series.localeCompare(b.series)||a.num-b.num);
+  const sel=new Set(pre||[]);
+  $('dt').textContent='Change box number / merge boxes'; $('dctl').innerHTML='';
+  $('dbody').innerHTML=`<p class="sub">Tick one box to <b>change its number</b>, or two or more to <b>merge them into one</b>. Then type the number the finished box should have (a new number, or one of the boxes). Nothing is lost: every sample moves with its box.</p>
+   <input id="mfind" placeholder="Filter boxes…" style="width:100%;margin-bottom:8px">
+   <div id="mlist" style="max-height:230px;overflow-y:auto;overflow-x:hidden;border:1px solid var(--line);border-radius:10px;padding:6px 10px"></div>
+   <div style="display:flex;gap:14px;flex-wrap:wrap;margin:12px 0"><label>Box number for the result<br><input id="mres" list="boxlist" value="${esc(result||'')}" placeholder="e.g. Box 31 or Box 42"></label><label>Capacity<br><input id="mcap" type="number" min="1" style="width:90px"></label></div>
+   <p id="msum" class="sub"></p><p id="mmsg" class="sub" style="color:var(--hot)"></p>
+   <p><button class="pri" id="mgo">Apply</button></p>
+   <div class="sub">You can undo this from Settings. If the Google Sheet still has the old numbers, that's fine — the app remembers this change when you drop the sheet in again.</div>`;
+  const drawList=()=>{ const f=$('mfind').value.trim().toLowerCase();
+    $('mlist').innerHTML=list.filter(b=>!f||b.id.toLowerCase().includes(f)||sel.has(b.id)).map(b=>`<label style="display:flex;gap:10px;align-items:center;padding:4px 0"><input type="checkbox" data-mb="${esc(b.id)}" ${sel.has(b.id)?'checked':''}> <b>${esc(b.id)}</b> <span class="sub">${b.left} of ${b.cap}${b.loc==='Overflow'?' · Overflow':''}</span></label>`).join('')||'<div class="sub">No boxes match.</div>'; };
+  let capTouched=false;
+  const calc=()=>{
+    const res=normLoc($('mres').value), tgt=res.box, byId=Object.fromEntries(list.map(b=>[b.id,b]));
+    const froms=[...sel].filter(b=>b!==tgt);
+    const involved=[...new Set([...sel,...(tgt&&byId[tgt]?[tgt]:[])])];
+    const total=involved.reduce((a,b)=>a+(byId[b]?byId[b].left:0),0);
+    const caps=involved.map(b=>byId[b]?byId[b].cap:0);
+    if(!capTouched) $('mcap').value=caps.length?Math.max(...caps):state.cap;
+    const cap=parseInt($('mcap').value,10)||0;
+    let msg='',sum='';
+    if(!sel.size) msg='Tick at least one box.';
+    else if(!tgt) msg=$('mres').value.trim()?'The number must look like “Box 12” or “Calchef 2”.':'';
+    else if(!froms.length) msg='Pick a number different from the box you ticked, or tick another box to merge.';
+    if(tgt&&froms.length){
+      const isMerge=involved.length>1;
+      sum=isMerge?`${froms.join(', ')} → <b>${esc(tgt)}</b>: ${total} samples together, capacity ${cap}${total>cap?' <b style="color:var(--hot)">(over capacity)</b>':''}.`
+                 :`<b>${esc(froms[0])}</b> will be renamed <b>${esc(tgt)}</b> (${total} samples).`;
+    }
+    $('msum').innerHTML=sum; $('mmsg').textContent=msg; $('mgo').disabled=!!msg||!tgt||!froms.length;
+    return {tgt,froms,cap};
+  };
+  drawList(); calc();
+  $('mfind').oninput=drawList;
+  $('mlist').onchange=e=>{ const b=e.target.dataset.mb; if(b==null) return; e.target.checked?sel.add(b):sel.delete(b); if(!$('mres').value.trim()&&sel.size===1) {} capTouched=false; calc(); };
+  $('mres').oninput=()=>{ capTouched=false; calc(); };
+  $('mcap').oninput=()=>{ capTouched=true; calc(); };
+  $('mgo').onclick=()=>{
+    const {tgt,froms,cap}=calc(); if(!tgt||!froms.length) return;
+    const g=applyMerge(froms,tgt,cap);
+    $('dt').textContent='Done';
+    $('dbody').innerHTML=`<p><b>${esc(froms.join(', '))}</b> ${froms.length>1?'are':'is'} now <b>${esc(tgt)}</b>.</p><p><button id="mundo">Undo</button> <button id="mopen" class="pri">Open ${esc(tgt)}</button></p>`;
+    $('mundo').onclick=()=>{ undoMerge(g); $('dlg').close(); };
+    $('mopen').onclick=()=>openBox(tgt);
+  };
+  if(!$('dlg').open) $('dlg').showModal();
+  if(focusResult) { $('mres').focus(); $('mres').select(); }
+}
 /* ---------- help / FAQ (English + simple Spanish) ---------- */
 const HELP={
  en:{title:'Help / FAQ',items:[
@@ -499,7 +584,8 @@ const HELP={
   ['I tapped Pulled by mistake','Untick it. The sample goes back into the box.'],
   ['How do I mark a box as full?','Open the box and tap <b>Mark as full</b>. The app remembers that this box is full at today’s count, so boxes with bigger samples can be “full” at fewer samples. Tap <b>Unmark full</b> to undo.'],
   ['How do I add a sample by hand?','Tap <b>+ Add sample</b> (top, or inside a box). Pick or type the box, enter the item # (and job # if you have it), then tap Add to box. You can add several in a row. To remove one you added by mistake, open the box and tap the ✕ next to it.'],
-  ['How do I combine two boxes?','1) Look at “Consolidation suggestions” at the top. 2) Tap “See what moves” to see the samples. 3) Move them physically. 4) In the Google Sheet, change the Sample Location of those rows to the surviving box. 5) Drop the sheet on this page (next question). The emptied box disappears.'],
+  ['How do I combine (merge) boxes?','Tap <b>Merge / renumber boxes</b> (or <b>Merge…</b> on a suggestion). Tick the boxes to combine, type the box number the finished box should have (one of them or a brand-new number), check the capacity, then tap Apply. Move the samples physically too. Made a mistake? Settings → Recent box changes → Undo.'],
+  ['How do I change a box number?','Open the box and tap <b>Change number</b>, type the new number and Apply. All its samples move with it. Typing the number of another existing box merges them. You can undo it in Settings.'],
   ['How do I update the data from the Google Sheet?','Copy the 4 columns (Timestamp, Job_Number, Inventory_Item, Sample Location) into an Excel file, then drag it onto the dotted box at the top (or tap it to choose the file). The app only reads those columns and ignores everything else. It asks you to confirm because it <b>replaces the data for everyone</b>. Pulls and manual entries are kept.'],
   ['Some entries are missing','Only locations that look like a box (Box 12, Bx12, Calchef 2…) are counted. Things like “Given to Johana” or “1st pass” are ignored. See the line “Location entries ignored” at the bottom. Typing “Box 12” the same way every time works best.'],
   ['What does “Offline – changes waiting” mean?','Your phone or PC lost the connection. Your changes are saved on the device and will send automatically when it is back. Keep the page open until it says “synced”.'],
@@ -513,7 +599,8 @@ const HELP={
   ['Marqué Pulled por error','Quita la marca. La muestra vuelve a la caja.'],
   ['¿Cómo marco una caja como llena?','Abre la caja y toca <b>Mark as full</b>. La app recuerda que esa caja está llena con el número de hoy (las cajas con muestras grandes se llenan con menos). Toca <b>Unmark full</b> para deshacer.'],
   ['¿Cómo agrego una muestra a mano?','Toca <b>+ Add sample</b>. Elige o escribe la caja, el número de artículo (y de trabajo si lo tienes) y toca Add to box. Para borrar una que agregaste por error, abre la caja y toca la ✕.'],
-  ['¿Cómo junto dos cajas?','1) Mira “Consolidation suggestions” arriba. 2) Toca “See what moves”. 3) Mueve las muestras. 4) En el Google Sheet cambia el Sample Location de esas filas a la caja que se queda. 5) Arrastra el archivo a esta página. La caja vacía desaparece.'],
+  ['¿Cómo junto (combino) cajas?','Toca <b>Merge / renumber boxes</b> (o <b>Merge…</b> en una sugerencia). Marca las cajas, escribe el número que tendrá la caja final (uno de ellos o uno nuevo), revisa la capacidad y toca Apply. Mueve también las muestras físicamente. ¿Error? Settings → Recent box changes → Undo.'],
+  ['¿Cómo cambio el número de una caja?','Abre la caja y toca <b>Change number</b>, escribe el número nuevo y Apply. Todas sus muestras se van con ella. Si escribes el número de otra caja, se juntan. Se puede deshacer en Settings.'],
   ['¿Cómo actualizo los datos?','Copia las 4 columnas (Timestamp, Job_Number, Inventory_Item, Sample Location) a un archivo de Excel y arrástralo al cuadro punteado de arriba. La app solo lee esas columnas. Te pide confirmar porque <b>cambia los datos para todos</b>. Los Pulled y las muestras manuales se conservan.'],
   ['Faltan algunas entradas','Solo se cuentan ubicaciones que parecen una caja (Box 12, Bx12, Calchef 2…). “Given to Johana” o “1st pass” se ignoran (ver abajo “Location entries ignored”). Escribe “Box 12” siempre igual.'],
   ['¿Qué significa “Offline – changes waiting”?','Se perdió la conexión. Tus cambios están guardados y se envían solos cuando regrese. Deja la página abierta hasta que diga “synced”.'],
@@ -544,11 +631,12 @@ fi.onchange=()=>fi.files[0]&&readFile(fi.files[0]);
 ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over');}));
 drop.addEventListener('drop',e=>{const f=e.dataTransfer.files[0]; if(f) readFile(f);});
 window.addEventListener('dragover',e=>e.preventDefault()); window.addEventListener('drop',e=>{e.preventDefault(); if(e.target!==drop&&!drop.contains(e.target)){const f=e.dataTransfer.files[0]; if(f) readFile(f);}});
-document.addEventListener('click',e=>{const o=e.target.closest('[data-open]'); if(o) openBox(o.dataset.open);});
+document.addEventListener('click',e=>{const o=e.target.closest('[data-open]'); if(o) openBox(o.dataset.open); const m=e.target.closest('[data-merge]'); if(m){ const [a,b]=m.dataset.merge.split('|'); openMerge([a,b],b); }});
 $('dclose').onclick=()=>{curBox=null;$('dlg').close();};
 ['q','filter','sort'].forEach(i=>$(i).addEventListener(i==='q'?'input':'change',render));
 $('settings').onclick=openSettings;
 $('addBtn').onclick=()=>openAdd('');
+$('mergeBtn').onclick=()=>openMerge([],'');
 render();
 showSync();
 poll();
