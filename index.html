@@ -288,6 +288,36 @@ body.intro .box,body.intro .tile,body.intro .hall-h{animation:rise .6s ease-out 
 @keyframes holo{0%,100%{box-shadow:0 0 0 0 transparent,var(--shadow)}50%{box-shadow:0 0 22px var(--etherglow),var(--shadow)}}
 @media(max-width:560px){.hall-t{letter-spacing:.14em;font-size:14px}.hero h1{letter-spacing:.06em}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+
+/* ---- breathing room: nothing sits tight against a border ---- */
+.hero .tools{position:static;display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px;margin:0 0 14px}
+.hero .tools button,button.icon{padding:8px 18px;gap:9px}
+button{padding:9px 16px}
+.bar button{padding:9px 14px}
+.bar{gap:10px}
+#q{min-width:150px}
+.orn{margin:4px auto 10px}
+.eyebrow{margin-top:6px}
+.pill{padding:3px 12px}
+.tag{padding:4px 10px}
+input,select{padding:9px 14px}
+select{appearance:none;-webkit-appearance:none;padding-right:42px;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M1 1.5l5 5 5-5' fill='none' stroke='%23b58a43' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat:no-repeat;background-position:right 16px center;background-size:12px 8px}
+input[type=checkbox]{padding:0}
+#drop{padding:30px 26px}
+#drop.slim{padding:20px 26px}
+#drop.slim::before{top:6px}#drop.slim::after{bottom:6px}
+#drop::before{top:10px}#drop::after{bottom:10px}
+.dh{padding:18px 24px}
+.db{padding:10px 24px 24px}
+.dh button,.dh select,.dh input{margin:0}
+.box{padding:16px 16px 14px}
+.tile{padding:18px 18px}
+.panel{padding:20px 24px}
+.sug{padding:12px 0}
+th,td{padding:10px 12px}
+@media(max-width:560px){.hero .tools{justify-content:center}.panel{padding:16px 16px}.dh{padding:16px 16px}.db{padding:8px 16px 20px}}
 </style>
 </head>
 <body>
