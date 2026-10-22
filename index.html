@@ -327,7 +327,7 @@ button.danger:hover{background:var(--danger);color:#fff8ef;border-color:var(--da
 .dupbox{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;padding:12px 0 4px;border-top:1px solid var(--line);margin-top:12px}
 .dupe{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:6px 0 6px 16px;font:12.5px var(--mono);color:var(--mute)}
 .dup button,.dupe button{padding:6px 14px;font-size:12px}
-.pill.dupill{background:var(--warnbg);color:var(--warn);border-color:transparent;text-transform:none;letter-spacing:0}.bsearch{display:flex;gap:12px;align-items:center;margin:6px 0 14px}
+.pill.dupill{background:var(--warnbg);color:var(--warn);border-color:transparent;text-transform:none;letter-spacing:0}.bsearch{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:6px 0 14px}
 .bsearch input{flex:1;font:italic 500 18px var(--serif2);padding:9px 16px}
 .bsearch .sub{white-space:nowrap;font-family:var(--mono)}
 button.sm{padding:4px 12px;font-size:12px}
@@ -453,6 +453,9 @@ function showSync(){
     outbox.length ? 'Saving…' : lastSync ? 'Shared · synced '+new Date(lastSync).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}) : 'Connecting…';
 }
 let curBox=null, serverDismiss=false, boxQ='', boxQBox=null;
+let boxSort=(()=>{ try{ return localStorage.getItem('sampleBoxTracker.boxSort')||'date-new'; }catch(e){ return 'date-new'; } })();
+function numCmp(x,y,dir){ if(!x&&!y) return 0; if(!x) return 1; if(!y) return -1; const nx=Number(x), ny=Number(y); if(!isNaN(nx)&&!isNaN(ny)) return (nx-ny)*dir; return String(x).localeCompare(String(y),undefined,{numeric:true})*dir; }
+function boxCmp(a,b){ let c; if(boxSort==='num-asc') c=numCmp(a.item,b.item,1); else if(boxSort==='num-desc') c=numCmp(a.item,b.item,-1); else if(boxSort==='date-old') c=(a.ts||0)-(b.ts||0); else c=(b.ts||0)-(a.ts||0); return c||((b.ts||0)-(a.ts||0)); }
 
 /* ---------- location normalizer: messy free text -> box id or null ---------- */
 function normLoc(raw){
@@ -661,7 +664,7 @@ function runSearch(){
 function openBox(id){
   curBox=id; dupBy=dupIndex();
   if(boxQBox!==id){ boxQ=''; boxQBox=id; }
-  const rows=effRows().filter(r=>r.box===id).sort((a,c)=>(c.ts||0)-(a.ts||0));
+  const rows=effRows().filter(r=>r.box===id).sort(boxCmp);
   const left=rows.filter(r=>!isPulled(r)).length, cap=capOf(id), isFull=left>=cap;
   $('dt').textContent=`${id} — ${left} of ${cap}${isFull?' (FULL)':''}`;
   $('dctl').innerHTML=`<select id="dloc"><option>Main</option><option>Overflow</option></select>
@@ -682,10 +685,11 @@ function openBox(id){
       return `<input data-to="${esc(r.k)}" list="boxlist" value="${esc(to)}" placeholder="Now at: pick a box or type where" style="width:100%;min-width:170px">${to&&!n.box?'<div class="sub">not a box – leaves the boxes</div>':''}`; }
     return dupPill(r)+(r.from?`<span class="pill">moved in from ${esc(r.from)}</span> `:'')+(r.manual?'<span class="pill">manual</span> ':'')+`<button class="danger sm" data-del1="${esc(r.k)}">Delete</button>`;
   };
-  $('dbody').innerHTML=`<div class="bsearch"><input id="bsearch" type="search" placeholder="Search this box by product #" autocomplete="off" value="${esc(boxQ)}"><span class="sub" id="bcount"></span></div><table><thead><tr><th>Pulled</th><th>Item #</th><th>Date</th><th>Location / note</th></tr></thead><tbody>`+
+  $('dbody').innerHTML=`<div class="bsearch"><input id="bsearch" type="search" placeholder="Search this box by product #" autocomplete="off" value="${esc(boxQ)}"><span class="sub" id="bcount"></span><select id="bsort" title="Sort this box"><option value="num-asc">Product # low → high</option><option value="num-desc">Product # high → low</option><option value="date-old">Date old → new</option><option value="date-new">Date new → old</option></select></div><table><thead><tr><th>Pulled</th><th>Item #</th><th>Date</th><th>Location / note</th></tr></thead><tbody>`+
     rows.map(r=>`<tr class="${isPulled(r)?'pulled':''}" data-item="${esc(r.item||'')}"><td><input type="checkbox" data-pull="${esc(r.k)}" ${isPulled(r)?'checked':''}></td><td>${esc(r.item||'—')}</td><td>${fdate(r.ts)}</td><td class="np">${note(r)}</td></tr>`).join('')+`</tbody></table>
     <div class="sub" style="margin-top:8px">Tick “Pulled” when a sample leaves this box, then say where it is now (an existing box, a new box you type, or leave blank if it's gone). “Mark as full” sets this box's capacity to what it holds right now.</div>`;
   if(!$('dlg').open) $('dlg').showModal();
+  $('bsort').value=boxSort; $('bsort').onchange=e=>{ boxSort=e.target.value; try{ localStorage.setItem('sampleBoxTracker.boxSort',boxSort); }catch(err){} openBox(id); };
   const applyBQ=()=>{ const raw=$('bsearch').value, q=raw.trim().toLowerCase(); boxQ=raw; let n=0,tot=0;
     document.querySelectorAll('#dbody tbody tr').forEach(tr=>{ tot++; const ok=!q||(tr.dataset.item||'').toLowerCase().includes(q); tr.style.display=ok?'':'none'; if(ok) n++; });
     $('bcount').textContent=q?(n+' of '+tot):''; };
@@ -915,7 +919,7 @@ const HELP={
  en:{title:'Help / FAQ',items:[
   ['What is this app for?','It shows which box each internal color / CAD reference sample is in, how full every box is, and which boxes can be combined. Everyone who opens this page sees the same data.'],
   ['How do I read a box card?','The name is the box. “74 / 100” means 74 samples are in it and it holds 100. A glowing <b>flame</b> means there is still room (with how full it is). A pulsing <b>blue ring</b> means it can be merged with another box. A bronze <b>crest</b> means FULL. Boxes are grouped as “The Grand Rotunda” (Main location) and “The Outer Vaults” (Overflow). Tap a card to see what is inside.'],
-  ['How do I find where a sample is?','Type the product # (item #) in the search bar at the top. It lists every box that has that sample. Tap Open to see it. Inside a box window, use its own search field to find a product in that box.'],
+  ['How do I find where a sample is?','Type the product # (item #) in the search bar at the top. It lists every box that has that sample. Tap Open to see it. Inside a box window you can also sort the list by product number or date. Inside a box window, use its own search field to find a product in that box.'],
   ['A sample leaves a box (CSR / sales request)','Open the box, tick <b>Pulled</b> on that sample, then in “Now at” pick the box it went to, or type where it is now (for example “Box 12”). If it is gone for good, leave it blank. The count in both boxes updates for everyone.'],
   ['I tapped Pulled by mistake','Untick it. The sample goes back into the box.'],
   ['How do I mark a box as full?','Open the box and tap <b>Mark as full</b>. The app remembers that this box is full at today’s count, so boxes with bigger samples can be “full” at fewer samples. Tap <b>Unmark full</b> to undo.'],
@@ -934,7 +938,7 @@ const HELP={
  es:{title:'Ayuda / Preguntas',items:[
   ['¿Para qué sirve esta app?','Muestra en qué caja está cada muestra de referencia (color / CAD), qué tan llena está cada caja y qué cajas se pueden juntar. Todos ven los mismos datos.'],
   ['¿Cómo leo la tarjeta de una caja?','El nombre es la caja. “74 / 100” = hay 74 muestras y caben 100. Una <b>llama</b> brillante = todavía hay espacio (y qué tan llena está). Un <b>anillo azul</b> que pulsa = se puede juntar con otra caja. Un <b>escudo</b> de bronce = llena (FULL). Las cajas están agrupadas en “The Grand Rotunda” (Main) y “The Outer Vaults” (Overflow). Toca la tarjeta para ver lo que tiene.'],
-  ['¿Cómo encuentro una muestra?','Escribe el número de producto (artículo) en la barra de búsqueda. Te dice en qué caja(s) está. Toca Open para verla. Dentro de una caja, usa su propio campo de búsqueda para encontrar un producto en esa caja.'],
+  ['¿Cómo encuentro una muestra?','Escribe el número de producto (artículo) en la barra de búsqueda. Te dice en qué caja(s) está. Toca Open para verla. Dentro de una caja, usa su propio campo de búsqueda para encontrar un producto en esa caja. También puedes ordenar por número de producto o por fecha.'],
   ['Sacan una muestra de una caja','Abre la caja, marca <b>Pulled</b> en esa muestra y en “Now at” elige la caja a donde fue, o escribe dónde está (por ejemplo “Box 12”). Si ya no existe, déjalo vacío. Los conteos se actualizan para todos.'],
   ['Marqué Pulled por error','Quita la marca. La muestra vuelve a la caja.'],
   ['¿Cómo marco una caja como llena?','Abre la caja y toca <b>Mark as full</b>. La app recuerda que esa caja está llena con el número de hoy (las cajas con muestras grandes se llenan con menos). Toca <b>Unmark full</b> para deshacer.'],
