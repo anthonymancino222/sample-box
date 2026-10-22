@@ -336,7 +336,11 @@ button.sm{padding:4px 12px;font-size:12px}
 .noteact{display:flex;gap:6px;flex-wrap:wrap}
 td.nt{min-width:200px}
 dialog{width:min(920px,96vw)}
-#dbody td:nth-child(2),#dbody td:nth-child(3){white-space:nowrap}
+#dbody td:nth-child(3),#dbody td:nth-child(4){white-space:nowrap}
+td.sel,th:first-child{width:34px}
+.bulk{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 14px;margin:0 0 12px;border:1px solid var(--danger);border-radius:10px;background:var(--hotbg)}
+.bulk[hidden]{display:none}
+.bulk span{font-family:var(--mono);flex:1}
 #dbody th{white-space:nowrap}
 </style>
 </head>
@@ -462,6 +466,7 @@ function showSync(){
     outbox.length ? 'Saving…' : lastSync ? 'Shared · synced '+new Date(lastSync).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}) : 'Connecting…';
 }
 let curBox=null, serverDismiss=false, serverNotes=false, boxQ='', boxQBox=null;
+const boxSel=new Set();
 let boxSort=(()=>{ try{ return localStorage.getItem('sampleBoxTracker.boxSort')||'date-new'; }catch(e){ return 'date-new'; } })();
 function numCmp(x,y,dir){ if(!x&&!y) return 0; if(!x) return 1; if(!y) return -1; const nx=Number(x), ny=Number(y); if(!isNaN(nx)&&!isNaN(ny)) return (nx-ny)*dir; return String(x).localeCompare(String(y),undefined,{numeric:true})*dir; }
 function boxCmp(a,b){ let c; if(boxSort==='num-asc') c=numCmp(a.item,b.item,1); else if(boxSort==='num-desc') c=numCmp(a.item,b.item,-1); else if(boxSort==='date-old') c=(a.ts||0)-(b.ts||0); else c=(b.ts||0)-(a.ts||0); return c||((b.ts||0)-(a.ts||0)); }
@@ -672,7 +677,7 @@ function runSearch(){
 /* ---------- box detail ---------- */
 function openBox(id){
   curBox=id; dupBy=dupIndex();
-  if(boxQBox!==id){ boxQ=''; boxQBox=id; }
+  if(boxQBox!==id){ boxQ=''; boxQBox=id; boxSel.clear(); }
   const rows=effRows().filter(r=>r.box===id).sort(boxCmp);
   const left=rows.filter(r=>!isPulled(r)).length, cap=capOf(id), isFull=left>=cap;
   $('dt').textContent=`${id} — ${left} of ${cap}${isFull?' (FULL)':''}`;
@@ -695,17 +700,22 @@ function openBox(id){
       return `<input data-to="${esc(r.k)}" list="boxlist" value="${esc(to)}" placeholder="Now at: pick a box or type where" style="width:100%;min-width:170px">${to&&!n.box?'<div class="sub">not a box – leaves the boxes</div>':''}`; }
     return dupPill(r)+(r.from?`<span class="pill">moved in from ${esc(r.from)}</span> `:'')+(r.manual?'<span class="pill">manual</span> ':'')+`<button class="danger sm" data-del1="${esc(r.k)}">Delete</button>`;
   };
-  $('dbody').innerHTML=`<div class="bsearch"><input id="bsearch" type="search" placeholder="Search this box by product # or note" autocomplete="off" value="${esc(boxQ)}"><span class="sub" id="bcount"></span><select id="bsort" title="Sort this box"><option value="num-asc">Product # low → high</option><option value="num-desc">Product # high → low</option><option value="date-old">Date old → new</option><option value="date-new">Date new → old</option></select></div><table><thead><tr><th>Pulled</th><th>Item #</th><th>Date</th><th>Location / note</th><th>Note</th></tr></thead><tbody>`+
-    rows.map(r=>`<tr class="${isPulled(r)?'pulled':''}" data-item="${esc(r.item||'')}" data-note="${esc((noteOf(r)||{text:''}).text)}"><td><input type="checkbox" data-pull="${esc(r.k)}" ${isPulled(r)?'checked':''}></td><td>${esc(r.item||'—')}</td><td>${fdate(r.ts)}</td><td class="np">${note(r)}</td><td class="np nt">${noteCell(r)}</td></tr>`).join('')+`</tbody></table>
+  $('dbody').innerHTML=`<div class="bsearch"><input id="bsearch" type="search" placeholder="Search this box by product # or note" autocomplete="off" value="${esc(boxQ)}"><span class="sub" id="bcount"></span><select id="bsort" title="Sort this box"><option value="num-asc">Product # low → high</option><option value="num-desc">Product # high → low</option><option value="date-old">Date old → new</option><option value="date-new">Date new → old</option></select></div><div id="bulk" class="bulk" hidden><span id="bulkn"></span><button class="danger" id="bulkdel">Delete selected</button><button id="bulkclr">Clear selection</button></div><table><thead><tr><th><input type="checkbox" id="selall" title="Select all shown"></th><th>Pulled</th><th>Item #</th><th>Date</th><th>Location / note</th><th>Note</th></tr></thead><tbody>`+
+    rows.map(r=>`<tr class="${isPulled(r)?'pulled':''}" data-item="${esc(r.item||'')}" data-note="${esc((noteOf(r)||{text:''}).text)}"><td class="sel"><input type="checkbox" data-sel="${esc(r.k)}" ${boxSel.has(r.k)?'checked':''} ${isPulled(r)?'disabled':''}></td><td><input type="checkbox" data-pull="${esc(r.k)}" ${isPulled(r)?'checked':''}></td><td>${esc(r.item||'—')}</td><td>${fdate(r.ts)}</td><td class="np">${note(r)}</td><td class="np nt">${noteCell(r)}</td></tr>`).join('')+`</tbody></table>
     <div class="sub" style="margin-top:8px">Tick “Pulled” when a sample leaves this box, then say where it is now (an existing box, a new box you type, or leave blank if it's gone). “Mark as full” sets this box's capacity to what it holds right now.</div>`;
   if(!$('dlg').open) $('dlg').showModal();
   $('bsort').value=boxSort; $('bsort').onchange=e=>{ boxSort=e.target.value; try{ localStorage.setItem('sampleBoxTracker.boxSort',boxSort); }catch(err){} openBox(id); };
+  const selRows=()=>[...document.querySelectorAll('#dbody tbody tr')].filter(tr=>tr.style.display!=='none').map(tr=>tr.querySelector('[data-sel]')).filter(c=>c&&!c.disabled);
+  const updateBulk=()=>{ const live=new Set(rows.filter(r=>!isPulled(r)).map(r=>r.k)); for(const k of [...boxSel]) if(!live.has(k)) boxSel.delete(k);
+    $('bulk').hidden=!boxSel.size; $('bulkn').textContent=boxSel.size+' selected'; const vis=selRows(); $('selall').checked=vis.length>0&&vis.every(c=>boxSel.has(c.dataset.sel)); };
   const applyBQ=()=>{ const raw=$('bsearch').value, q=raw.trim().toLowerCase(); boxQ=raw; let n=0,tot=0;
     document.querySelectorAll('#dbody tbody tr').forEach(tr=>{ tot++; const ok=!q||(tr.dataset.item||'').toLowerCase().includes(q)||(tr.dataset.note||'').toLowerCase().includes(q); tr.style.display=ok?'':'none'; if(ok) n++; });
-    $('bcount').textContent=q?(n+' of '+tot):''; };
+    $('bcount').textContent=q?(n+' of '+tot):''; updateBulk(); };
   $('bsearch').oninput=applyBQ; applyBQ();
   $('dbody').onchange=e=>{
     const t=e.target;
+    if(t.dataset.sel!=null){ t.checked?boxSel.add(t.dataset.sel):boxSel.delete(t.dataset.sel); updateBulk(); return; }
+    if(t.id==='selall'){ selRows().forEach(c=>{ c.checked=t.checked; t.checked?boxSel.add(c.dataset.sel):boxSel.delete(c.dataset.sel); }); updateBulk(); return; }
     if(t.dataset.pull!=null){
       if(t.checked){ state.pulled[t.dataset.pull]={from:id,to:'',at:Date.now()}; save(); opPull(t.dataset.pull); } else { delete state.pulled[t.dataset.pull]; save(); op({op:'clearPull',k:t.dataset.pull}); }
       render(); openBox(id);
@@ -721,6 +731,10 @@ function openBox(id){
     if(b.dataset.notesave){ saveNote(b.dataset.notesave,b.closest('td').querySelector('input').value); render(); openBox(id); return; }
     if(b.dataset.notedel){ if(confirm('Delete this note?')){ saveNote(b.dataset.notedel,''); render(); openBox(id); } return; }
     if(b.dataset.notecancel){ openBox(id); return; }
+    if(b.id==='bulkdel'){ const ks=[...boxSel]; if(ks.length&&confirm(`Delete ${ks.length} product${ks.length===1?'':'s'} from ${id}?
+
+They disappear for everyone. You can bring each one back with Restore.`)){ const at=Date.now(); ks.forEach(k=>{ state.pulled[k]={from:id,to:DELD,at}; opPull(k); }); boxSel.clear(); save(); render(); openBox(id); } return; }
+    if(b.id==='bulkclr'){ boxSel.clear(); document.querySelectorAll('#dbody [data-sel]').forEach(c=>c.checked=false); updateBulk(); return; }
     const k1=b.dataset.del1, kr=b.dataset.restore;
     if(k1){ const r=rows.find(x=>x.k===k1); if(r&&confirm(`Delete product ${r.item||'(no number)'} from ${id}?
 
@@ -948,7 +962,7 @@ const HELP={
   ['How do I combine (merge) boxes?','Tap <b>Merge / renumber boxes</b> (or <b>Merge…</b> on a suggestion). Tick the boxes to combine, type the box number the finished box should have (one of them or a brand-new number), check the capacity, then tap Apply. Move the samples physically too. Made a mistake? Settings → Recent box changes → Undo.'],
   ['How do I change a box number?','Open the box and tap <b>Change number</b>, type the new number and Apply. All its samples move with it. Typing the number of another existing box merges them. You can undo it in Settings.'],
   ['How do I delete a box?','Open the box and tap <b>Delete box</b>. The app asks “Are you sure?” and tells you how many samples are in it. Tap <b>Yes, delete</b> to confirm. The box disappears for everyone. Changed your mind? Settings → Recent box changes → Undo. To keep the samples, merge the box into another one instead.'],
-  ['How do I delete one product from a box?','Open the box, find the product (the box has its own search field), and tap <b>Delete</b> on its row. The app asks “Are you sure?”. The product disappears for everyone. Changed your mind? Tap <b>Restore</b> on that row. Use <b>Pulled</b> instead when the product moved to another box.'],
+  ['How do I delete one product from a box?','Open the box, find the product (the box has its own search field), and tap <b>Delete</b> on its row. The app asks “Are you sure?”. The product disappears for everyone. Changed your mind? Tap <b>Restore</b> on that row. Use <b>Pulled</b> instead when the product moved to another box. To delete many at once, tick the boxes in the first column (the top box selects everything shown) and tap <b>Delete selected</b>.'],
   ['How do I add a note to a product?','Open the box and tap <b>+ Note</b> on the product’s row, type your note and tap <b>Save</b> (or press Enter). Tap <b>Edit</b> to change it, or <b>Delete</b> inside the editor to remove it. Notes are shared with everyone, the box search also finds words inside notes, and the Excel export includes them. A note stays with that sample even if you move it to another box.'],
   ['How do I find and clean up duplicate products?','Tap <b>Review duplicates</b> (or the “duplicate products” number at the top). Each entry is one product that is on hand more than once. For each one you can: <b>Keep only in [box]</b> (removes it from the other boxes, after asking), <b>Remove</b> one sample, <b>Open box</b>, or <b>Mark reviewed</b> if you want to keep them all (it comes back only if another copy is added). Use the filter to see just products in different boxes or several in one box. Inside any box, a gold “also in Box X” tag shows its duplicates. <b>Export to Excel</b> downloads the list you are looking at. Nothing changes until you press a button.'],
   ['How do I update the data from the Google Sheet?','Copy the same 4 columns from the sheet as always into an Excel file, then drag it onto the dotted box at the top (or tap it to choose the file). The app only reads those columns and ignores everything else. It asks you to confirm because it <b>replaces the data for everyone</b>. Pulls and manual entries are kept.'],
@@ -968,7 +982,7 @@ const HELP={
   ['¿Cómo junto (combino) cajas?','Toca <b>Merge / renumber boxes</b> (o <b>Merge…</b> en una sugerencia). Marca las cajas, escribe el número que tendrá la caja final (uno de ellos o uno nuevo), revisa la capacidad y toca Apply. Mueve también las muestras físicamente. ¿Error? Settings → Recent box changes → Undo.'],
   ['¿Cómo cambio el número de una caja?','Abre la caja y toca <b>Change number</b>, escribe el número nuevo y Apply. Todas sus muestras se van con ella. Si escribes el número de otra caja, se juntan. Se puede deshacer en Settings.'],
   ['¿Cómo borro una caja?','Abre la caja y toca <b>Delete box</b>. La app pregunta “¿Estás seguro?” y dice cuántas muestras tiene. Toca <b>Yes, delete</b> para confirmar. La caja desaparece para todos. ¿Te arrepentiste? Settings → Recent box changes → Undo. Para conservar las muestras, junta la caja con otra.'],
-  ['¿Cómo borro un solo producto de una caja?','Abre la caja, busca el producto (la caja tiene su propio campo de búsqueda) y toca <b>Delete</b> en su fila. La app pregunta “¿Estás seguro?”. El producto desaparece para todos. ¿Te arrepentiste? Toca <b>Restore</b> en esa fila. Usa <b>Pulled</b> cuando el producto se movió a otra caja.'],
+  ['¿Cómo borro un solo producto de una caja?','Abre la caja, busca el producto (la caja tiene su propio campo de búsqueda) y toca <b>Delete</b> en su fila. La app pregunta “¿Estás seguro?”. El producto desaparece para todos. ¿Te arrepentiste? Toca <b>Restore</b> en esa fila. Usa <b>Pulled</b> cuando el producto se movió a otra caja. Para borrar varios a la vez, marca las casillas de la primera columna (la de arriba selecciona todo lo que se ve) y toca <b>Delete selected</b>.'],
   ['¿Cómo agrego una nota a un producto?','Abre la caja y toca <b>+ Note</b> en la fila del producto, escribe tu nota y toca <b>Save</b> (o presiona Enter). Toca <b>Edit</b> para cambiarla o <b>Delete</b> dentro del editor para quitarla. Las notas las ve todo el mundo, la búsqueda de la caja también encuentra palabras de las notas y el Excel las incluye. La nota se queda con esa muestra aunque la muevas a otra caja.'],
   ['¿Cómo encuentro y limpio productos duplicados?','Toca <b>Review duplicates</b> (o el número “duplicate products” arriba). Cada entrada es un producto que está más de una vez. Puedes: <b>Keep only in [caja]</b> (lo quita de las otras cajas, después de preguntar), <b>Remove</b> una muestra, <b>Open box</b>, o <b>Mark reviewed</b> si quieres dejarlos todos. El filtro muestra solo los de cajas distintas o varios en una caja. Dentro de una caja, la etiqueta dorada “also in Box X” muestra sus duplicados. <b>Export to Excel</b> descarga la lista que estás viendo. Nada cambia hasta que toques un botón.'],
   ['¿Cómo actualizo los datos?','Copia las mismas 4 columnas de siempre a un archivo de Excel y arrástralo al cuadro punteado de arriba. La app solo lee esas columnas. Te pide confirmar porque <b>cambia los datos para todos</b>. Los Pulled y las muestras manuales se conservan.'],
@@ -1026,7 +1040,7 @@ async function hardRefresh(){
 $('updateBtn').onclick=hardRefresh;
 try{ const cu=new URL(location.href); if(cu.searchParams.has('v')){ cu.searchParams.delete('v'); history.replaceState(null,'',cu.pathname+cu.search+cu.hash); } }catch(e){}
 $('helpBtn').onclick=openHelp;
-$('dlg').addEventListener('close',()=>{ boxQBox=null; });
+$('dlg').addEventListener('close',()=>{ boxQBox=null; boxSel.clear(); });
 const drop=$('drop'), fi=$('file');
 drop.onclick=()=>fi.click();
 fi.onchange=()=>fi.files[0]&&readFile(fi.files[0]);
