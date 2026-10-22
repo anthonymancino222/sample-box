@@ -851,15 +851,30 @@ function dupGroups(){
   return out;
 }
 function dupRemove(rows){ const at=Date.now(); rows.forEach(r=>{ state.pulled[r.k]={from:r.box,to:'',at}; opPull(r.k); }); save(); render(); }
-function openDupes(){
+function exportDupes(list){
+  if(!list.length){ alert('Nothing to export for this filter.'); return; }
+  const sum=[], ent=[];
+  list.forEach(g=>{
+    const bx=[...g.boxes.entries()].sort((a,b)=>b[1].length-a[1].length), st=g.reviewed?'Reviewed':'To review';
+    sum.push({'Product #':String(g.item),'Samples on hand':g.rows.length,'Number of boxes':g.boxes.size,'Boxes (samples)':bx.map(([b,r])=>b+' ('+r.length+')').join(', '),'Status':st,'Decision (box to keep it in)':''});
+    bx.forEach(([b,rs])=>rs.slice().sort((x,y)=>(y.ts||0)-(x.ts||0)).forEach(r=>ent.push({'Product #':String(g.item),'Box':b,'Location':locOf(b),'Samples of this product in this box':rs.length,'Date added':r.ts?new Date(r.ts):'','Status':st,'Keep or remove':''})));
+  });
+  const wb=XLSX.utils.book_new();
+  const w1=XLSX.utils.json_to_sheet(sum); w1['!cols']=[{wch:12},{wch:16},{wch:16},{wch:70},{wch:12},{wch:28}];
+  const w2=XLSX.utils.json_to_sheet(ent,{cellDates:true,dateNF:'yyyy-mm-dd'}); w2['!cols']=[{wch:12},{wch:14},{wch:12},{wch:34},{wch:14},{wch:12},{wch:16}];
+  XLSX.utils.book_append_sheet(wb,w1,'By product'); XLSX.utils.book_append_sheet(wb,w2,'By box');
+  XLSX.writeFile(wb,'Duplicate products - '+new Date().toISOString().slice(0,10)+'.xlsx',{cellDates:true});
+}function openDupes(){
   curBox=null; $('dbody').onchange=null;
   const all=dupGroups(), f=dupState.f, q=dupState.q.trim();
   const pass={todo:g=>!g.reviewed,cross:g=>g.cross&&!g.reviewed,same:g=>!g.cross&&!g.reviewed,reviewed:g=>g.reviewed,all:()=>true}[f];
   const list=all.filter(g=>pass(g)&&(!q||g.item.includes(q)));
   const shown=list.slice(0,dupState.show);
   $('dt').textContent='Duplicate products';
-  $('dctl').innerHTML=`<select id="dupf"><option value="todo">To review</option><option value="cross">In different boxes</option><option value="same">Several in one box</option><option value="reviewed">Marked reviewed</option><option value="all">Everything</option></select> <input id="dupq" placeholder="Item #" style="width:120px" value="${esc(dupState.q)}">`;
+  $('dctl').innerHTML=`<select id="dupf"><option value="todo">To review</option><option value="cross">In different boxes</option><option value="same">Several in one box</option><option value="reviewed">Marked reviewed</option><option value="all">Everything</option></select> <input id="dupq" placeholder="Item #" style="width:120px" value="${esc(dupState.q)}"> <button id="dupx">Export to Excel</button>`;
   $('dupf').value=f;
+  $('dupx').onclick=()=>exportDupes(list);
+  $('dupx').title='Download the '+list.length+' product'+(list.length===1?'':'s')+' in this list as an Excel file';
   $('dupf').onchange=e=>{ dupState.f=e.target.value; dupState.show=30; openDupes(); };
   $('dupq').onchange=e=>{ dupState.q=e.target.value; dupState.show=30; openDupes(); };
   const row=r=>`<div class="dupe"><span>Added ${fdate(r.ts)}${r.manual?' &middot; manual':''}${r.from?' &middot; moved in':''}</span><button data-rm="${esc(r.k)}">Remove from ${esc(r.box)}</button></div>`;
@@ -895,7 +910,7 @@ const HELP={
   ['How do I combine (merge) boxes?','Tap <b>Merge / renumber boxes</b> (or <b>Merge…</b> on a suggestion). Tick the boxes to combine, type the box number the finished box should have (one of them or a brand-new number), check the capacity, then tap Apply. Move the samples physically too. Made a mistake? Settings → Recent box changes → Undo.'],
   ['How do I change a box number?','Open the box and tap <b>Change number</b>, type the new number and Apply. All its samples move with it. Typing the number of another existing box merges them. You can undo it in Settings.'],
   ['How do I delete a box?','Open the box and tap <b>Delete box</b>. The app asks “Are you sure?” and tells you how many samples are in it. Tap <b>Yes, delete</b> to confirm. The box disappears for everyone. Changed your mind? Settings → Recent box changes → Undo. To keep the samples, merge the box into another one instead.'],
-  ['How do I find and clean up duplicate products?','Tap <b>Review duplicates</b> (or the “duplicate products” number at the top). Each entry is one product that is on hand more than once. For each one you can: <b>Keep only in [box]</b> (removes it from the other boxes, after asking), <b>Remove</b> one sample, <b>Open box</b>, or <b>Mark reviewed</b> if you want to keep them all (it comes back only if another copy is added). Use the filter to see just products in different boxes or several in one box. Inside any box, a gold “also in Box X” tag shows its duplicates. Nothing changes until you press a button.'],
+  ['How do I find and clean up duplicate products?','Tap <b>Review duplicates</b> (or the “duplicate products” number at the top). Each entry is one product that is on hand more than once. For each one you can: <b>Keep only in [box]</b> (removes it from the other boxes, after asking), <b>Remove</b> one sample, <b>Open box</b>, or <b>Mark reviewed</b> if you want to keep them all (it comes back only if another copy is added). Use the filter to see just products in different boxes or several in one box. Inside any box, a gold “also in Box X” tag shows its duplicates. <b>Export to Excel</b> downloads the list you are looking at. Nothing changes until you press a button.'],
   ['How do I update the data from the Google Sheet?','Copy the 4 columns (Timestamp, Job_Number, Inventory_Item, Sample Location) into an Excel file, then drag it onto the dotted box at the top (or tap it to choose the file). The app only reads those columns and ignores everything else. It asks you to confirm because it <b>replaces the data for everyone</b>. Pulls and manual entries are kept.'],
   ['Some entries are missing','Only locations that look like a box (Box 12, Bx12, Calchef 2…) are counted. Things like “Given to Johana” or “1st pass” are ignored. See the line “Location entries ignored” at the bottom. Typing “Box 12” the same way every time works best.'],
   ['What does “Offline – changes waiting” mean?','Your phone or PC lost the connection. Your changes are saved on the device and will send automatically when it is back. Keep the page open until it says “synced”.'],
@@ -913,7 +928,7 @@ const HELP={
   ['¿Cómo junto (combino) cajas?','Toca <b>Merge / renumber boxes</b> (o <b>Merge…</b> en una sugerencia). Marca las cajas, escribe el número que tendrá la caja final (uno de ellos o uno nuevo), revisa la capacidad y toca Apply. Mueve también las muestras físicamente. ¿Error? Settings → Recent box changes → Undo.'],
   ['¿Cómo cambio el número de una caja?','Abre la caja y toca <b>Change number</b>, escribe el número nuevo y Apply. Todas sus muestras se van con ella. Si escribes el número de otra caja, se juntan. Se puede deshacer en Settings.'],
   ['¿Cómo borro una caja?','Abre la caja y toca <b>Delete box</b>. La app pregunta “¿Estás seguro?” y dice cuántas muestras tiene. Toca <b>Yes, delete</b> para confirmar. La caja desaparece para todos. ¿Te arrepentiste? Settings → Recent box changes → Undo. Para conservar las muestras, junta la caja con otra.'],
-  ['¿Cómo encuentro y limpio productos duplicados?','Toca <b>Review duplicates</b> (o el número “duplicate products” arriba). Cada entrada es un producto que está más de una vez. Puedes: <b>Keep only in [caja]</b> (lo quita de las otras cajas, después de preguntar), <b>Remove</b> una muestra, <b>Open box</b>, o <b>Mark reviewed</b> si quieres dejarlos todos. El filtro muestra solo los de cajas distintas o varios en una caja. Dentro de una caja, la etiqueta dorada “also in Box X” muestra sus duplicados. Nada cambia hasta que toques un botón.'],
+  ['¿Cómo encuentro y limpio productos duplicados?','Toca <b>Review duplicates</b> (o el número “duplicate products” arriba). Cada entrada es un producto que está más de una vez. Puedes: <b>Keep only in [caja]</b> (lo quita de las otras cajas, después de preguntar), <b>Remove</b> una muestra, <b>Open box</b>, o <b>Mark reviewed</b> si quieres dejarlos todos. El filtro muestra solo los de cajas distintas o varios en una caja. Dentro de una caja, la etiqueta dorada “also in Box X” muestra sus duplicados. <b>Export to Excel</b> descarga la lista que estás viendo. Nada cambia hasta que toques un botón.'],
   ['¿Cómo actualizo los datos?','Copia las 4 columnas (Timestamp, Job_Number, Inventory_Item, Sample Location) a un archivo de Excel y arrástralo al cuadro punteado de arriba. La app solo lee esas columnas. Te pide confirmar porque <b>cambia los datos para todos</b>. Los Pulled y las muestras manuales se conservan.'],
   ['Faltan algunas entradas','Solo se cuentan ubicaciones que parecen una caja (Box 12, Bx12, Calchef 2…). “Given to Johana” o “1st pass” se ignoran (ver abajo “Location entries ignored”). Escribe “Box 12” siempre igual.'],
   ['¿Qué significa “Offline – changes waiting”?','Se perdió la conexión. Tus cambios están guardados y se envían solos cuando regrese. Deja la página abierta hasta que diga “synced”.'],
