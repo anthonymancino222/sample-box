@@ -330,6 +330,7 @@ button.danger:hover{background:var(--danger);color:#fff8ef;border-color:var(--da
 .pill.dupill{background:var(--warnbg);color:var(--warn);border-color:transparent;text-transform:none;letter-spacing:0}.bsearch{display:flex;gap:12px;align-items:center;margin:6px 0 14px}
 .bsearch input{flex:1;font:italic 500 18px var(--serif2);padding:9px 16px}
 .bsearch .sub{white-space:nowrap;font-family:var(--mono)}
+button.sm{padding:4px 12px;font-size:12px}
 </style>
 </head>
 <body>
@@ -547,7 +548,7 @@ const isPulled=r=>!!state.pulled[r.k];
 // in the destination box for each pulled sample that was given a new box.
 // Box renumbers / merges are stored as moves {from,to,at}. A sample recorded as `from` on or before `at`
 // now lives in `to`; samples recorded later under the old number are a new physical box and stay put.
-const DEL='__deleted__';
+const DEL='__deleted__', DELD='__deleted_item__';
 function resolveBox(box,ts,minAt){
   let b=box;
   for(const m of state.moves){ if(m.from===b && (minAt!=null ? m.at>minAt : (ts==null||ts<=m.at))) b=m.to; }
@@ -676,9 +677,10 @@ function openBox(id){
   $('drename').onclick=()=>openMerge([id],id,true);
   const note=r=>{
     const p=state.pulled[r.k];
+    if(p&&p.to===DELD) return `<span class="pill">deleted</span> <button class="sm" data-restore="${esc(r.k)}">Restore</button>`;
     if(p){ const to=p.to||''; const n=to?normLoc(to):{};
       return `<input data-to="${esc(r.k)}" list="boxlist" value="${esc(to)}" placeholder="Now at: pick a box or type where" style="width:100%;min-width:170px">${to&&!n.box?'<div class="sub">not a box – leaves the boxes</div>':''}`; }
-    return dupPill(r)+(r.from?`<span class="pill">moved in from ${esc(r.from)}</span> `:'')+(r.manual?`<span class="pill">manual</span> <button data-del="${esc(r.k)}" title="Delete this manual entry">✕</button>`:'');
+    return dupPill(r)+(r.from?`<span class="pill">moved in from ${esc(r.from)}</span> `:'')+(r.manual?'<span class="pill">manual</span> ':'')+`<button class="danger sm" data-del1="${esc(r.k)}">Delete</button>`;
   };
   $('dbody').innerHTML=`<div class="bsearch"><input id="bsearch" type="search" placeholder="Search this box by product #" autocomplete="off" value="${esc(boxQ)}"><span class="sub" id="bcount"></span></div><table><thead><tr><th>Pulled</th><th>Item #</th><th>Date</th><th>Location / note</th></tr></thead><tbody>`+
     rows.map(r=>`<tr class="${isPulled(r)?'pulled':''}" data-item="${esc(r.item||'')}"><td><input type="checkbox" data-pull="${esc(r.k)}" ${isPulled(r)?'checked':''}></td><td>${esc(r.item||'—')}</td><td>${fdate(r.ts)}</td><td class="np">${note(r)}</td></tr>`).join('')+`</tbody></table>
@@ -699,8 +701,12 @@ function openBox(id){
       const v=t.value.trim(), n=normLoc(v); p.to=n.box||v; save(); opPull(t.dataset.to); render(); openBox(id);
     }
   };
-  $('dbody').onclick=e=>{ const k=e.target.dataset&&e.target.dataset.del; if(!k) return;
-    if(confirm('Delete this manual entry?')){ state.manual=state.manual.filter(x=>x.k!==k); delete state.pulled[k]; save(); op({op:'delManual',k}); render(); openBox(id); } };
+  $('dbody').onclick=e=>{ const b=e.target.closest&&e.target.closest('button'); if(!b) return;
+    const k1=b.dataset.del1, kr=b.dataset.restore;
+    if(k1){ const r=rows.find(x=>x.k===k1); if(r&&confirm(`Delete product ${r.item||'(no number)'} from ${id}?
+
+It disappears for everyone. You can bring it back with Restore.`)){ state.pulled[k1]={from:id,to:DELD,at:Date.now()}; save(); opPull(k1); render(); openBox(id); } return; }
+    if(kr){ delete state.pulled[kr]; save(); op({op:'clearPull',k:kr}); render(); openBox(id); } };
 }
 
 /* ---------- add a sample by hand ---------- */
@@ -857,7 +863,7 @@ function dupGroups(){
   out.sort((a,b)=>b.boxes.size-a.boxes.size||b.rows.length-a.rows.length);
   return out;
 }
-function dupRemove(rows){ const at=Date.now(); rows.forEach(r=>{ state.pulled[r.k]={from:r.box,to:'',at}; opPull(r.k); }); save(); render(); }
+function dupRemove(rows){ const at=Date.now(); rows.forEach(r=>{ state.pulled[r.k]={from:r.box,to:DELD,at}; opPull(r.k); }); save(); render(); }
 function exportDupes(list){
   if(!list.length){ alert('Nothing to export for this filter.'); return; }
   const sum=[], ent=[];
@@ -917,6 +923,7 @@ const HELP={
   ['How do I combine (merge) boxes?','Tap <b>Merge / renumber boxes</b> (or <b>Merge…</b> on a suggestion). Tick the boxes to combine, type the box number the finished box should have (one of them or a brand-new number), check the capacity, then tap Apply. Move the samples physically too. Made a mistake? Settings → Recent box changes → Undo.'],
   ['How do I change a box number?','Open the box and tap <b>Change number</b>, type the new number and Apply. All its samples move with it. Typing the number of another existing box merges them. You can undo it in Settings.'],
   ['How do I delete a box?','Open the box and tap <b>Delete box</b>. The app asks “Are you sure?” and tells you how many samples are in it. Tap <b>Yes, delete</b> to confirm. The box disappears for everyone. Changed your mind? Settings → Recent box changes → Undo. To keep the samples, merge the box into another one instead.'],
+  ['How do I delete one product from a box?','Open the box, find the product (the box has its own search field), and tap <b>Delete</b> on its row. The app asks “Are you sure?”. The product disappears for everyone. Changed your mind? Tap <b>Restore</b> on that row. Use <b>Pulled</b> instead when the product moved to another box.'],
   ['How do I find and clean up duplicate products?','Tap <b>Review duplicates</b> (or the “duplicate products” number at the top). Each entry is one product that is on hand more than once. For each one you can: <b>Keep only in [box]</b> (removes it from the other boxes, after asking), <b>Remove</b> one sample, <b>Open box</b>, or <b>Mark reviewed</b> if you want to keep them all (it comes back only if another copy is added). Use the filter to see just products in different boxes or several in one box. Inside any box, a gold “also in Box X” tag shows its duplicates. <b>Export to Excel</b> downloads the list you are looking at. Nothing changes until you press a button.'],
   ['How do I update the data from the Google Sheet?','Copy the same 4 columns from the sheet as always into an Excel file, then drag it onto the dotted box at the top (or tap it to choose the file). The app only reads those columns and ignores everything else. It asks you to confirm because it <b>replaces the data for everyone</b>. Pulls and manual entries are kept.'],
   ['Some entries are missing','Only locations that look like a box (Box 12, Bx12, Calchef 2…) are counted. Things like “Given to Johana” or “1st pass” are ignored. See the line “Location entries ignored” at the bottom. Typing “Box 12” the same way every time works best.'],
@@ -935,6 +942,7 @@ const HELP={
   ['¿Cómo junto (combino) cajas?','Toca <b>Merge / renumber boxes</b> (o <b>Merge…</b> en una sugerencia). Marca las cajas, escribe el número que tendrá la caja final (uno de ellos o uno nuevo), revisa la capacidad y toca Apply. Mueve también las muestras físicamente. ¿Error? Settings → Recent box changes → Undo.'],
   ['¿Cómo cambio el número de una caja?','Abre la caja y toca <b>Change number</b>, escribe el número nuevo y Apply. Todas sus muestras se van con ella. Si escribes el número de otra caja, se juntan. Se puede deshacer en Settings.'],
   ['¿Cómo borro una caja?','Abre la caja y toca <b>Delete box</b>. La app pregunta “¿Estás seguro?” y dice cuántas muestras tiene. Toca <b>Yes, delete</b> para confirmar. La caja desaparece para todos. ¿Te arrepentiste? Settings → Recent box changes → Undo. Para conservar las muestras, junta la caja con otra.'],
+  ['¿Cómo borro un solo producto de una caja?','Abre la caja, busca el producto (la caja tiene su propio campo de búsqueda) y toca <b>Delete</b> en su fila. La app pregunta “¿Estás seguro?”. El producto desaparece para todos. ¿Te arrepentiste? Toca <b>Restore</b> en esa fila. Usa <b>Pulled</b> cuando el producto se movió a otra caja.'],
   ['¿Cómo encuentro y limpio productos duplicados?','Toca <b>Review duplicates</b> (o el número “duplicate products” arriba). Cada entrada es un producto que está más de una vez. Puedes: <b>Keep only in [caja]</b> (lo quita de las otras cajas, después de preguntar), <b>Remove</b> una muestra, <b>Open box</b>, o <b>Mark reviewed</b> si quieres dejarlos todos. El filtro muestra solo los de cajas distintas o varios en una caja. Dentro de una caja, la etiqueta dorada “also in Box X” muestra sus duplicados. <b>Export to Excel</b> descarga la lista que estás viendo. Nada cambia hasta que toques un botón.'],
   ['¿Cómo actualizo los datos?','Copia las mismas 4 columnas de siempre a un archivo de Excel y arrástralo al cuadro punteado de arriba. La app solo lee esas columnas. Te pide confirmar porque <b>cambia los datos para todos</b>. Los Pulled y las muestras manuales se conservan.'],
   ['Faltan algunas entradas','Solo se cuentan ubicaciones que parecen una caja (Box 12, Bx12, Calchef 2…). “Given to Johana” o “1st pass” se ignoran (ver abajo “Location entries ignored”). Escribe “Box 12” siempre igual.'],
