@@ -180,7 +180,7 @@ body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;tr
 .orn svg{width:46px;height:34px}
 .orn i{background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:.55}
 .hero .tools{gap:6px}
-html,body{overflow-x:hidden}
+html{overflow-x:hidden}
 button{white-space:nowrap}
 @media(max-width:560px){.hero .tools{flex-wrap:wrap;justify-content:center}}
 .status{font-family:var(--mono);font-size:11px}
@@ -342,6 +342,11 @@ td.sel,th:first-child{width:34px}
 .bulk[hidden]{display:none}
 .bulk span{font-family:var(--mono);flex:1}
 #dbody th{white-space:nowrap}
+.stick{position:sticky;top:0;z-index:40;background:var(--bg);margin:0 -14px 16px;padding:10px 14px 12px;border-bottom:1px solid var(--line2);box-shadow:0 8px 12px -10px rgba(0,0,0,.35)}
+.stick #q{display:block;width:100%;min-width:0}
+.stick #search{margin:10px 0 0;max-height:42vh;overflow-y:auto}
+.bsticky{position:sticky;top:-10px;z-index:6;background:var(--card);padding:16px 0 2px}
+#dbody th{top:calc(var(--stk,0px) - 10px);z-index:5}
 </style>
 </head>
 <body>
@@ -366,8 +371,11 @@ td.sel,th:first-child{width:34px}
   <div id="app" hidden>
     <div class="tiles" id="tiles"></div>
 
-    <div class="bar">
+    <div class="stick">
       <input id="q" type="search" placeholder="Find a product # (e.g. 115403) &rarr; which box?">
+      <div id="search" class="panel" hidden></div>
+    </div>
+    <div class="bar">
       <select id="filter">
         <option value="all">All boxes</option>
         <option value="Main">The Grand Rotunda (Main)</option>
@@ -385,7 +393,6 @@ td.sel,th:first-child{width:34px}
       <button id="mergeBtn"><span class="ico" data-ic="knot"></span><span class="lbl">Merge / renumber boxes</span></button>
       <button id="settings"><span class="ico" data-ic="gear"></span><span class="lbl">Settings</span></button>
     </div>
-    <div id="search" class="panel" hidden></div>
     <div class="halls" id="grid"></div>
 
     <div class="panel" id="mergePanel" style="margin-top:26px"></div>
@@ -700,14 +707,14 @@ function openBox(id){
       return `<input data-to="${esc(r.k)}" list="boxlist" value="${esc(to)}" placeholder="Now at: pick a box or type where" style="width:100%;min-width:170px">${to&&!n.box?'<div class="sub">not a box – leaves the boxes</div>':''}`; }
     return dupPill(r)+(r.from?`<span class="pill">moved in from ${esc(r.from)}</span> `:'')+(r.manual?'<span class="pill">manual</span> ':'')+`<button class="danger sm" data-del1="${esc(r.k)}">Delete</button>`;
   };
-  $('dbody').innerHTML=`<div class="bsearch"><input id="bsearch" type="search" placeholder="Search this box by product # or note" autocomplete="off" value="${esc(boxQ)}"><span class="sub" id="bcount"></span><select id="bsort" title="Sort this box"><option value="num-asc">Product # low → high</option><option value="num-desc">Product # high → low</option><option value="date-old">Date old → new</option><option value="date-new">Date new → old</option></select></div><div id="bulk" class="bulk" hidden><span id="bulkn"></span><button class="danger" id="bulkdel">Delete selected</button><button id="bulkclr">Clear selection</button></div><table><thead><tr><th><input type="checkbox" id="selall" title="Select all shown"></th><th>Pulled</th><th>Item #</th><th>Date</th><th>Location / note</th><th>Note</th></tr></thead><tbody>`+
+  $('dbody').innerHTML=`<div class="bsticky"><div class="bsearch"><input id="bsearch" type="search" placeholder="Search this box by product # or note" autocomplete="off" value="${esc(boxQ)}"><span class="sub" id="bcount"></span><select id="bsort" title="Sort this box"><option value="num-asc">Product # low → high</option><option value="num-desc">Product # high → low</option><option value="date-old">Date old → new</option><option value="date-new">Date new → old</option></select></div><div id="bulk" class="bulk" hidden><span id="bulkn"></span><button class="danger" id="bulkdel">Delete selected</button><button id="bulkclr">Clear selection</button></div></div><table><thead><tr><th><input type="checkbox" id="selall" title="Select all shown"></th><th>Pulled</th><th>Item #</th><th>Date</th><th>Location / note</th><th>Note</th></tr></thead><tbody>`+
     rows.map(r=>`<tr class="${isPulled(r)?'pulled':''}" data-item="${esc(r.item||'')}" data-note="${esc((noteOf(r)||{text:''}).text)}"><td class="sel"><input type="checkbox" data-sel="${esc(r.k)}" ${boxSel.has(r.k)?'checked':''} ${isPulled(r)?'disabled':''}></td><td><input type="checkbox" data-pull="${esc(r.k)}" ${isPulled(r)?'checked':''}></td><td>${esc(r.item||'—')}</td><td>${fdate(r.ts)}</td><td class="np">${note(r)}</td><td class="np nt">${noteCell(r)}</td></tr>`).join('')+`</tbody></table>
     <div class="sub" style="margin-top:8px">Tick “Pulled” when a sample leaves this box, then say where it is now (an existing box, a new box you type, or leave blank if it's gone). “Mark as full” sets this box's capacity to what it holds right now.</div>`;
   if(!$('dlg').open) $('dlg').showModal();
   $('bsort').value=boxSort; $('bsort').onchange=e=>{ boxSort=e.target.value; try{ localStorage.setItem('sampleBoxTracker.boxSort',boxSort); }catch(err){} openBox(id); };
   const selRows=()=>[...document.querySelectorAll('#dbody tbody tr')].filter(tr=>tr.style.display!=='none').map(tr=>tr.querySelector('[data-sel]')).filter(c=>c&&!c.disabled);
   const updateBulk=()=>{ const live=new Set(rows.filter(r=>!isPulled(r)).map(r=>r.k)); for(const k of [...boxSel]) if(!live.has(k)) boxSel.delete(k);
-    $('bulk').hidden=!boxSel.size; $('bulkn').textContent=boxSel.size+' selected'; const vis=selRows(); $('selall').checked=vis.length>0&&vis.every(c=>boxSel.has(c.dataset.sel)); };
+    $('bulk').hidden=!boxSel.size; $('bulkn').textContent=boxSel.size+' selected'; const vis=selRows(); $('selall').checked=vis.length>0&&vis.every(c=>boxSel.has(c.dataset.sel)); $('dbody').style.setProperty('--stk',document.querySelector('#dbody .bsticky').offsetHeight+'px'); };
   const applyBQ=()=>{ const raw=$('bsearch').value, q=raw.trim().toLowerCase(); boxQ=raw; let n=0,tot=0;
     document.querySelectorAll('#dbody tbody tr').forEach(tr=>{ tot++; const ok=!q||(tr.dataset.item||'').toLowerCase().includes(q)||(tr.dataset.note||'').toLowerCase().includes(q); tr.style.display=ok?'':'none'; if(ok) n++; });
     $('bcount').textContent=q?(n+' of '+tot):''; updateBulk(); };
