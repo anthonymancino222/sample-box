@@ -19,6 +19,7 @@ var HEADERS = {
   Manual: ['k','box','series','ts','job','item'],
   Meta:   ['box','loc','cap','full'],
   Moves:  ['k','g','from','to','at','snap'],
+  Notes: ['k','text','at'],
   Dismissed: ['item','at','n'],
   Config: ['key','value'],
   Log:    ['at','op','key']
@@ -56,6 +57,8 @@ function applyOp(o){
     case 'setMeta':   setMeta(o.box, o.meta); log(o.op,o.box); break;
     case 'addMove':  var mv=o.move; if(!mv||!mv.from||!mv.to||mv.from===mv.to||!mv.g) throw new Error('bad move'); upsert('Moves', mv.g+'|'+mv.from, [mv.g+'|'+mv.from, mv.g, mv.from, mv.to, mv.at||Date.now(), mv.snap?JSON.stringify(mv.snap):'']); log(o.op,mv.g+' '+mv.from+'>'+mv.to); break;
     case 'delMoves':  removeWhere('Moves', 1, o.g); log(o.op,o.g); break;
+    case 'setNote':   upsert('Notes', o.k, [o.k, String(o.text||'').slice(0,500), o.at||Date.now()]); log(o.op,o.k); break;
+    case 'delNote':   remove('Notes', o.k); log(o.op,o.k); break;
     case 'dismissDup':   upsert('Dismissed', o.item, [o.item, o.at||Date.now(), o.n||0]); log(o.op,o.item); break;
     case 'undismissDup': remove('Dismissed', o.item); log(o.op,o.item); break;
     case 'setCap':    setConfig('cap', o.cap); log(o.op,String(o.cap)); break;
@@ -92,6 +95,7 @@ function readState(){
     pulled: pulled,
     rows:   table('Rows').map(rowObj),
     dismissed: dismissedMap(),
+    notes: notesMap(),
     moves:  table('Moves').map(function(r){ var sn=null; try{ sn=r[5]?JSON.parse(r[5]):null; }catch(e){} return {g:String(r[1]),from:String(r[2]),to:String(r[3]),at:Number(r[4])||0,snap:sn}; }),
     manual: table('Manual').map(function(r){ var o=rowObj(r); o.manual=true; return o; })
   };
@@ -130,6 +134,7 @@ function remove(name, key){
   var sh = sheet(name), r = findRow(sh, key);
   if (r > 0) sh.deleteRow(r);
 }
+function notesMap(){ var m={}; table('Notes').forEach(function(r){ m[String(r[0])]={text:String(r[1]),at:Number(r[2])||0}; }); return m; }
 function dismissedMap(){ var m={}; table('Dismissed').forEach(function(r){ m[String(r[0])]={at:Number(r[1])||0,n:Number(r[2])||0}; }); return m; }
 function removeWhere(name, col, val){
   var sh = sheet(name), n = sh.getLastRow(); if (n < 2) return;

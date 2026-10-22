@@ -331,6 +331,13 @@ button.danger:hover{background:var(--danger);color:#fff8ef;border-color:var(--da
 .bsearch input{flex:1;font:italic 500 18px var(--serif2);padding:9px 16px}
 .bsearch .sub{white-space:nowrap;font-family:var(--mono)}
 button.sm{padding:4px 12px;font-size:12px}
+.notetxt{display:inline-block;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;color:var(--ink)}
+.noteinp{width:100%;min-width:180px;margin-bottom:6px}
+.noteact{display:flex;gap:6px;flex-wrap:wrap}
+td.nt{min-width:200px}
+dialog{width:min(920px,96vw)}
+#dbody td:nth-child(2),#dbody td:nth-child(3){white-space:nowrap}
+#dbody th{white-space:nowrap}
 </style>
 </head>
 <body>
@@ -390,7 +397,7 @@ button.sm{padding:4px 12px;font-size:12px}
 "use strict";
 const LS = 'sampleBoxTracker.v1';
 let state = load();           // {cap:100, boxMeta:{id:{loc,cap}}, pulled:{rowKey:1}, rows:[...], stamp}
-function load(){ try{ const s=JSON.parse(localStorage.getItem(LS)); if(s&&s.rows){ s.manual=s.manual||[]; s.moves=s.moves||[]; s.dismissed=s.dismissed||{}; return s; } }catch(e){} return {cap:100,boxMeta:{},pulled:{},manual:[],moves:[],dismissed:{},rows:[],stamp:null}; }
+function load(){ try{ const s=JSON.parse(localStorage.getItem(LS)); if(s&&s.rows){ s.manual=s.manual||[]; s.moves=s.moves||[]; s.dismissed=s.dismissed||{}; s.notes=s.notes||{}; return s; } }catch(e){} return {cap:100,boxMeta:{},pulled:{},manual:[],moves:[],dismissed:{},notes:{},rows:[],stamp:null}; }
 function save(){ try{ localStorage.setItem(LS, JSON.stringify(state)); }catch(e){} }
 
 /* ---------- shared backend (Google Apps Script + Google Sheet) ----------
@@ -437,6 +444,8 @@ async function poll(force){
         const localD=state.dismissed||{}; state.dismissed=Object.assign({},s.dismissed);
         if(!serverDismiss){ serverDismiss=true; for(const k in localD) if(!s.dismissed[k]){ state.dismissed[k]=localD[k]; op({op:'dismissDup',item:k,at:localD[k].at,n:localD[k].n}); } }
       }
+      if('notes' in s){ const ln=state.notes||{}; state.notes=Object.assign({},s.notes);
+        if(!serverNotes){ serverNotes=true; for(const k in ln) if(!s.notes[k]){ state.notes[k]=ln[k]; op({op:'setNote',k,text:ln[k].text,at:ln[k].at}); } } }
       state.v=j.v; save();
       const dlg=$('dlg');
       render();
@@ -452,7 +461,7 @@ function showSync(){
   el.textContent = syncErr ? `⚠ Offline – ${outbox.length} change${outbox.length==1?'':'s'} waiting` :
     outbox.length ? 'Saving…' : lastSync ? 'Shared · synced '+new Date(lastSync).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}) : 'Connecting…';
 }
-let curBox=null, serverDismiss=false, boxQ='', boxQBox=null;
+let curBox=null, serverDismiss=false, serverNotes=false, boxQ='', boxQBox=null;
 let boxSort=(()=>{ try{ return localStorage.getItem('sampleBoxTracker.boxSort')||'date-new'; }catch(e){ return 'date-new'; } })();
 function numCmp(x,y,dir){ if(!x&&!y) return 0; if(!x) return 1; if(!y) return -1; const nx=Number(x), ny=Number(y); if(!isNaN(nx)&&!isNaN(ny)) return (nx-ny)*dir; return String(x).localeCompare(String(y),undefined,{numeric:true})*dir; }
 function boxCmp(a,b){ let c; if(boxSort==='num-asc') c=numCmp(a.item,b.item,1); else if(boxSort==='num-desc') c=numCmp(a.item,b.item,-1); else if(boxSort==='date-old') c=(a.ts||0)-(b.ts||0); else c=(b.ts||0)-(a.ts||0); return c||((b.ts||0)-(a.ts||0)); }
@@ -678,6 +687,7 @@ function openBox(id){
   $('dadd').onclick=()=>openAdd(id);
   $('ddel').onclick=()=>openDelete(id);
   $('drename').onclick=()=>openMerge([id],id,true);
+  const noteCell=r=>{ const n=noteOf(r), k=nkey(r); return n?`<span class="notetxt" title="${esc(n.text)}">${esc(n.text)}</span> <button class="sm" data-noteedit="${esc(k)}">Edit</button>`:`<button class="sm" data-noteedit="${esc(k)}">+ Note</button>`; };
   const note=r=>{
     const p=state.pulled[r.k];
     if(p&&p.to===DELD) return `<span class="pill">deleted</span> <button class="sm" data-restore="${esc(r.k)}">Restore</button>`;
@@ -685,13 +695,13 @@ function openBox(id){
       return `<input data-to="${esc(r.k)}" list="boxlist" value="${esc(to)}" placeholder="Now at: pick a box or type where" style="width:100%;min-width:170px">${to&&!n.box?'<div class="sub">not a box – leaves the boxes</div>':''}`; }
     return dupPill(r)+(r.from?`<span class="pill">moved in from ${esc(r.from)}</span> `:'')+(r.manual?'<span class="pill">manual</span> ':'')+`<button class="danger sm" data-del1="${esc(r.k)}">Delete</button>`;
   };
-  $('dbody').innerHTML=`<div class="bsearch"><input id="bsearch" type="search" placeholder="Search this box by product #" autocomplete="off" value="${esc(boxQ)}"><span class="sub" id="bcount"></span><select id="bsort" title="Sort this box"><option value="num-asc">Product # low → high</option><option value="num-desc">Product # high → low</option><option value="date-old">Date old → new</option><option value="date-new">Date new → old</option></select></div><table><thead><tr><th>Pulled</th><th>Item #</th><th>Date</th><th>Location / note</th></tr></thead><tbody>`+
-    rows.map(r=>`<tr class="${isPulled(r)?'pulled':''}" data-item="${esc(r.item||'')}"><td><input type="checkbox" data-pull="${esc(r.k)}" ${isPulled(r)?'checked':''}></td><td>${esc(r.item||'—')}</td><td>${fdate(r.ts)}</td><td class="np">${note(r)}</td></tr>`).join('')+`</tbody></table>
+  $('dbody').innerHTML=`<div class="bsearch"><input id="bsearch" type="search" placeholder="Search this box by product # or note" autocomplete="off" value="${esc(boxQ)}"><span class="sub" id="bcount"></span><select id="bsort" title="Sort this box"><option value="num-asc">Product # low → high</option><option value="num-desc">Product # high → low</option><option value="date-old">Date old → new</option><option value="date-new">Date new → old</option></select></div><table><thead><tr><th>Pulled</th><th>Item #</th><th>Date</th><th>Location / note</th><th>Note</th></tr></thead><tbody>`+
+    rows.map(r=>`<tr class="${isPulled(r)?'pulled':''}" data-item="${esc(r.item||'')}" data-note="${esc((noteOf(r)||{text:''}).text)}"><td><input type="checkbox" data-pull="${esc(r.k)}" ${isPulled(r)?'checked':''}></td><td>${esc(r.item||'—')}</td><td>${fdate(r.ts)}</td><td class="np">${note(r)}</td><td class="np nt">${noteCell(r)}</td></tr>`).join('')+`</tbody></table>
     <div class="sub" style="margin-top:8px">Tick “Pulled” when a sample leaves this box, then say where it is now (an existing box, a new box you type, or leave blank if it's gone). “Mark as full” sets this box's capacity to what it holds right now.</div>`;
   if(!$('dlg').open) $('dlg').showModal();
   $('bsort').value=boxSort; $('bsort').onchange=e=>{ boxSort=e.target.value; try{ localStorage.setItem('sampleBoxTracker.boxSort',boxSort); }catch(err){} openBox(id); };
   const applyBQ=()=>{ const raw=$('bsearch').value, q=raw.trim().toLowerCase(); boxQ=raw; let n=0,tot=0;
-    document.querySelectorAll('#dbody tbody tr').forEach(tr=>{ tot++; const ok=!q||(tr.dataset.item||'').toLowerCase().includes(q); tr.style.display=ok?'':'none'; if(ok) n++; });
+    document.querySelectorAll('#dbody tbody tr').forEach(tr=>{ tot++; const ok=!q||(tr.dataset.item||'').toLowerCase().includes(q)||(tr.dataset.note||'').toLowerCase().includes(q); tr.style.display=ok?'':'none'; if(ok) n++; });
     $('bcount').textContent=q?(n+' of '+tot):''; };
   $('bsearch').oninput=applyBQ; applyBQ();
   $('dbody').onchange=e=>{
@@ -705,7 +715,12 @@ function openBox(id){
       const v=t.value.trim(), n=normLoc(v); p.to=n.box||v; save(); opPull(t.dataset.to); render(); openBox(id);
     }
   };
+  $('dbody').onkeydown=e=>{ if(!e.target.classList||!e.target.classList.contains('noteinp')) return; if(e.key==='Enter'){ e.preventDefault(); const sv=e.target.closest('td').querySelector('[data-notesave]'); if(sv) sv.click(); } else if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); openBox(id); } };
   $('dbody').onclick=e=>{ const b=e.target.closest&&e.target.closest('button'); if(!b) return;
+    if(b.dataset.noteedit){ const nk=b.dataset.noteedit, td=b.closest('td'), cur=(state.notes[nk]||{}).text||''; td.innerHTML=`<input class="noteinp" maxlength="500" placeholder="Write a note…" value="${esc(cur)}"><span class="noteact"><button class="sm pri" data-notesave="${esc(nk)}">Save</button><button class="sm" data-notecancel="1">Cancel</button>${cur?`<button class="sm danger" data-notedel="${esc(nk)}">Delete</button>`:''}</span>`; td.querySelector('input').focus(); return; }
+    if(b.dataset.notesave){ saveNote(b.dataset.notesave,b.closest('td').querySelector('input').value); render(); openBox(id); return; }
+    if(b.dataset.notedel){ if(confirm('Delete this note?')){ saveNote(b.dataset.notedel,''); render(); openBox(id); } return; }
+    if(b.dataset.notecancel){ openBox(id); return; }
     const k1=b.dataset.del1, kr=b.dataset.restore;
     if(k1){ const r=rows.find(x=>x.k===k1); if(r&&confirm(`Delete product ${r.item||'(no number)'} from ${id}?
 
@@ -748,7 +763,7 @@ function openSettings(){
   if(gs.length) $('dbody').insertAdjacentHTML('beforeend','<h4 style="font:600 20px var(--serif);margin:14px 0 4px">Recent box changes</h4>'+gs.map(x=>`<div class="sug"><span>${esc(x.txt)}</span><span class="sub">${new Date(x.at).toLocaleDateString()}</span><button data-undo="${x.g}">Undo</button></div>`).join(''));
   $('dbody').onclick=e=>{ const g=e.target.dataset&&e.target.dataset.undo; if(g&&confirm('Undo this box change?')){ undoMerge(g); openSettings(); } };
   $('scap').onchange=e=>{const n=parseInt(e.target.value,10); if(n>0){state.cap=n;save();op({op:'setCap',cap:n});render();}};
-  if($('sclear')) $('sclear').onclick=()=>{ if(confirm('Remove all imported data and pull marks from this device?')){state={cap:state.cap,boxMeta:state.boxMeta,pulled:{},manual:[],moves:[],dismissed:{},rows:[],stamp:null};save();$('dlg').close();render();} };
+  if($('sclear')) $('sclear').onclick=()=>{ if(confirm('Remove all imported data and pull marks from this device?')){state={cap:state.cap,boxMeta:state.boxMeta,pulled:{},manual:[],moves:[],dismissed:{},notes:{},rows:[],stamp:null};save();$('dlg').close();render();} };
   $('dlg').showModal();
 }
 
@@ -848,6 +863,12 @@ function openDelete(id){
 /* ---------- duplicate products: the same item # on hand more than once ---------- */
 const dupState={f:'todo',q:'',show:30};
 let dupBy=null;
+const nkey=r=>String(r.k).split('>')[0];
+const noteOf=r=>state.notes[nkey(r)];
+function saveNote(k,text){ text=String(text||'').trim().slice(0,500);
+  if(text){ state.notes[k]={text,at:Date.now()}; if(serverNotes) op({op:'setNote',k,text,at:state.notes[k].at}); }
+  else { delete state.notes[k]; if(serverNotes) op({op:'delNote',k}); }
+  save(); }
 function dupIndex(){ const m=new Map(); for(const r of effRows()){ if(isPulled(r)||!r.item) continue; if(!m.has(r.item)) m.set(r.item,[]); m.get(r.item).push(r); } return m; }
 function dupPill(r){
   if(!dupBy||isPulled(r)||!r.item) return '';
@@ -874,11 +895,11 @@ function exportDupes(list){
   list.forEach(g=>{
     const bx=[...g.boxes.entries()].sort((a,b)=>b[1].length-a[1].length), st=g.reviewed?'Reviewed':'To review';
     sum.push({'Product #':String(g.item),'Samples on hand':g.rows.length,'Number of boxes':g.boxes.size,'Boxes (samples)':bx.map(([b,r])=>b+' ('+r.length+')').join(', '),'Status':st,'Decision (box to keep it in)':''});
-    bx.forEach(([b,rs])=>rs.slice().sort((x,y)=>(y.ts||0)-(x.ts||0)).forEach(r=>ent.push({'Product #':String(g.item),'Box':b,'Location':locOf(b),'Samples of this product in this box':rs.length,'Date added':r.ts?new Date(r.ts):'','Status':st,'Keep or remove':''})));
+    bx.forEach(([b,rs])=>rs.slice().sort((x,y)=>(y.ts||0)-(x.ts||0)).forEach(r=>ent.push({'Product #':String(g.item),'Box':b,'Location':locOf(b),'Samples of this product in this box':rs.length,'Date added':r.ts?new Date(r.ts):'','Status':st,'Note':(noteOf(r)||{text:''}).text,'Keep or remove':''}))) ;
   });
   const wb=XLSX.utils.book_new();
   const w1=XLSX.utils.json_to_sheet(sum); w1['!cols']=[{wch:12},{wch:16},{wch:16},{wch:70},{wch:12},{wch:28}];
-  const w2=XLSX.utils.json_to_sheet(ent,{cellDates:true,dateNF:'yyyy-mm-dd'}); w2['!cols']=[{wch:12},{wch:14},{wch:12},{wch:34},{wch:14},{wch:12},{wch:16}];
+  const w2=XLSX.utils.json_to_sheet(ent,{cellDates:true,dateNF:'yyyy-mm-dd'}); w2['!cols']=[{wch:12},{wch:14},{wch:12},{wch:34},{wch:14},{wch:12},{wch:40},{wch:16}];
   XLSX.utils.book_append_sheet(wb,w1,'By product'); XLSX.utils.book_append_sheet(wb,w2,'By box');
   XLSX.writeFile(wb,'Duplicate products - '+new Date().toISOString().slice(0,10)+'.xlsx',{cellDates:true});
 }function openDupes(){
@@ -894,7 +915,7 @@ function exportDupes(list){
   $('dupx').title='Download the '+list.length+' product'+(list.length===1?'':'s')+' in this list as an Excel file';
   $('dupf').onchange=e=>{ dupState.f=e.target.value; dupState.show=30; openDupes(); };
   $('dupq').onchange=e=>{ dupState.q=e.target.value; dupState.show=30; openDupes(); };
-  const row=r=>`<div class="dupe"><span>Added ${fdate(r.ts)}${r.manual?' &middot; manual':''}${r.from?' &middot; moved in':''}</span><button data-rm="${esc(r.k)}">Remove from ${esc(r.box)}</button></div>`;
+  const row=r=>`<div class="dupe"><span>Added ${fdate(r.ts)}${r.manual?' &middot; manual':''}${r.from?' &middot; moved in':''}${noteOf(r)?' &middot; note: '+esc(noteOf(r).text):''}</span><button data-rm="${esc(r.k)}">Remove from ${esc(r.box)}</button></div>`;
   const grp=g=>`<div class="dup"><div class="dup-h"><b>${esc(g.item)}</b><span class="sub">${g.rows.length} samples in ${g.boxes.size} box${g.boxes.size>1?'es':''}</span><span style="flex:1"></span>${g.reviewed?`<button data-undis="${esc(g.item)}">Bring back</button>`:`<button data-dis="${esc(g.item)}">Mark reviewed</button>`}</div>`+
     [...g.boxes.entries()].sort((a,b)=>b[1].length-a[1].length).map(([bx,rs])=>`<div class="dupbox"><span><b>${esc(bx)}</b> <span class="sub">&middot; ${rs.length} sample${rs.length>1?'s':''}</span></span><span style="display:flex;gap:8px;flex-wrap:wrap"><button data-open="${esc(bx)}">Open box</button>${g.cross?`<button class="pri" data-keep="${esc(g.item)}|${esc(bx)}">Keep only in ${esc(bx)}</button>`:''}</span></div>`+rs.map(row).join('')).join('')+`</div>`;
   $('dbody').innerHTML=`<p class="sub">${list.length} product${list.length===1?'':'s'} here. Nothing changes until you press a button, and every removal asks first. “Keep only in…” removes the product from the <b>other</b> boxes. A removed sample can be brought back by unticking <b>Pulled</b> in its box.</p>`+
@@ -928,6 +949,7 @@ const HELP={
   ['How do I change a box number?','Open the box and tap <b>Change number</b>, type the new number and Apply. All its samples move with it. Typing the number of another existing box merges them. You can undo it in Settings.'],
   ['How do I delete a box?','Open the box and tap <b>Delete box</b>. The app asks “Are you sure?” and tells you how many samples are in it. Tap <b>Yes, delete</b> to confirm. The box disappears for everyone. Changed your mind? Settings → Recent box changes → Undo. To keep the samples, merge the box into another one instead.'],
   ['How do I delete one product from a box?','Open the box, find the product (the box has its own search field), and tap <b>Delete</b> on its row. The app asks “Are you sure?”. The product disappears for everyone. Changed your mind? Tap <b>Restore</b> on that row. Use <b>Pulled</b> instead when the product moved to another box.'],
+  ['How do I add a note to a product?','Open the box and tap <b>+ Note</b> on the product’s row, type your note and tap <b>Save</b> (or press Enter). Tap <b>Edit</b> to change it, or <b>Delete</b> inside the editor to remove it. Notes are shared with everyone, the box search also finds words inside notes, and the Excel export includes them. A note stays with that sample even if you move it to another box.'],
   ['How do I find and clean up duplicate products?','Tap <b>Review duplicates</b> (or the “duplicate products” number at the top). Each entry is one product that is on hand more than once. For each one you can: <b>Keep only in [box]</b> (removes it from the other boxes, after asking), <b>Remove</b> one sample, <b>Open box</b>, or <b>Mark reviewed</b> if you want to keep them all (it comes back only if another copy is added). Use the filter to see just products in different boxes or several in one box. Inside any box, a gold “also in Box X” tag shows its duplicates. <b>Export to Excel</b> downloads the list you are looking at. Nothing changes until you press a button.'],
   ['How do I update the data from the Google Sheet?','Copy the same 4 columns from the sheet as always into an Excel file, then drag it onto the dotted box at the top (or tap it to choose the file). The app only reads those columns and ignores everything else. It asks you to confirm because it <b>replaces the data for everyone</b>. Pulls and manual entries are kept.'],
   ['Some entries are missing','Only locations that look like a box (Box 12, Bx12, Calchef 2…) are counted. Things like “Given to Johana” or “1st pass” are ignored. See the line “Location entries ignored” at the bottom. Typing “Box 12” the same way every time works best.'],
@@ -947,6 +969,7 @@ const HELP={
   ['¿Cómo cambio el número de una caja?','Abre la caja y toca <b>Change number</b>, escribe el número nuevo y Apply. Todas sus muestras se van con ella. Si escribes el número de otra caja, se juntan. Se puede deshacer en Settings.'],
   ['¿Cómo borro una caja?','Abre la caja y toca <b>Delete box</b>. La app pregunta “¿Estás seguro?” y dice cuántas muestras tiene. Toca <b>Yes, delete</b> para confirmar. La caja desaparece para todos. ¿Te arrepentiste? Settings → Recent box changes → Undo. Para conservar las muestras, junta la caja con otra.'],
   ['¿Cómo borro un solo producto de una caja?','Abre la caja, busca el producto (la caja tiene su propio campo de búsqueda) y toca <b>Delete</b> en su fila. La app pregunta “¿Estás seguro?”. El producto desaparece para todos. ¿Te arrepentiste? Toca <b>Restore</b> en esa fila. Usa <b>Pulled</b> cuando el producto se movió a otra caja.'],
+  ['¿Cómo agrego una nota a un producto?','Abre la caja y toca <b>+ Note</b> en la fila del producto, escribe tu nota y toca <b>Save</b> (o presiona Enter). Toca <b>Edit</b> para cambiarla o <b>Delete</b> dentro del editor para quitarla. Las notas las ve todo el mundo, la búsqueda de la caja también encuentra palabras de las notas y el Excel las incluye. La nota se queda con esa muestra aunque la muevas a otra caja.'],
   ['¿Cómo encuentro y limpio productos duplicados?','Toca <b>Review duplicates</b> (o el número “duplicate products” arriba). Cada entrada es un producto que está más de una vez. Puedes: <b>Keep only in [caja]</b> (lo quita de las otras cajas, después de preguntar), <b>Remove</b> una muestra, <b>Open box</b>, o <b>Mark reviewed</b> si quieres dejarlos todos. El filtro muestra solo los de cajas distintas o varios en una caja. Dentro de una caja, la etiqueta dorada “also in Box X” muestra sus duplicados. <b>Export to Excel</b> descarga la lista que estás viendo. Nada cambia hasta que toques un botón.'],
   ['¿Cómo actualizo los datos?','Copia las mismas 4 columnas de siempre a un archivo de Excel y arrástralo al cuadro punteado de arriba. La app solo lee esas columnas. Te pide confirmar porque <b>cambia los datos para todos</b>. Los Pulled y las muestras manuales se conservan.'],
   ['Faltan algunas entradas','Solo se cuentan ubicaciones que parecen una caja (Box 12, Bx12, Calchef 2…). “Given to Johana” o “1st pass” se ignoran (ver abajo “Location entries ignored”). Escribe “Box 12” siempre igual.'],
