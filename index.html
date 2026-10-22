@@ -327,7 +327,10 @@ button.danger:hover{background:var(--danger);color:#fff8ef;border-color:var(--da
 .dupbox{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;padding:12px 0 4px;border-top:1px solid var(--line);margin-top:12px}
 .dupe{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:6px 0 6px 16px;font:12.5px var(--mono);color:var(--mute)}
 .dup button,.dupe button{padding:6px 14px;font-size:12px}
-.pill.dupill{background:var(--warnbg);color:var(--warn);border-color:transparent;text-transform:none;letter-spacing:0}</style>
+.pill.dupill{background:var(--warnbg);color:var(--warn);border-color:transparent;text-transform:none;letter-spacing:0}.bsearch{display:flex;gap:12px;align-items:center;margin:6px 0 14px}
+.bsearch input{flex:1;font:italic 500 18px var(--serif2);padding:9px 16px}
+.bsearch .sub{white-space:nowrap;font-family:var(--mono)}
+</style>
 </head>
 <body>
 <div class="wrap">
@@ -344,7 +347,7 @@ button.danger:hover{background:var(--danger);color:#fff8ef;border-color:var(--da
     <div class="status"><span id="stamp"></span> <b id="sync" class="pill"></b></div>
   </header>
 
-  <div id="drop"><div class="offer"><svg viewBox="0 0 32 32"><path d="M11 4h10M12 4c0 3-5 4-5 11 0 6 3 10 9 13 6-3 9-7 9-13 0-7-5-8-5-11"/><path d="M10 11h12"/></svg><div><b>Drop the sample sheet here</b><br><span class="sub">(.xlsx / .csv) or click to choose. Only Timestamp, Job_Number, Inventory_Item and Sample Location are read &mdash; everything else is ignored.</span></div></div>
+  <div id="drop"><div class="offer"><svg viewBox="0 0 32 32"><path d="M11 4h10M12 4c0 3-5 4-5 11 0 6 3 10 9 13 6-3 9-7 9-13 0-7-5-8-5-11"/><path d="M10 11h12"/></svg><div><b>Drop the sample sheet here</b><br><span class="sub">(.xlsx / .csv) or click to choose. Copy the same 4 columns as always &mdash; everything else is ignored.</span></div></div>
     <input type="file" id="file" accept=".xlsx,.xls,.csv" hidden></div>
   <div id="err" class="msg"></div>
 
@@ -352,7 +355,7 @@ button.danger:hover{background:var(--danger);color:#fff8ef;border-color:var(--da
     <div class="tiles" id="tiles"></div>
 
     <div class="bar">
-      <input id="q" type="search" placeholder="Find an item # or job # (e.g. 115403) &rarr; which box?">
+      <input id="q" type="search" placeholder="Find a product # (e.g. 115403) &rarr; which box?">
       <select id="filter">
         <option value="all">All boxes</option>
         <option value="Main">The Grand Rotunda (Main)</option>
@@ -448,7 +451,7 @@ function showSync(){
   el.textContent = syncErr ? `⚠ Offline – ${outbox.length} change${outbox.length==1?'':'s'} waiting` :
     outbox.length ? 'Saving…' : lastSync ? 'Shared · synced '+new Date(lastSync).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}) : 'Connecting…';
 }
-let curBox=null, serverDismiss=false;
+let curBox=null, serverDismiss=false, boxQ='', boxQBox=null;
 
 /* ---------- location normalizer: messy free text -> box id or null ---------- */
 function normLoc(raw){
@@ -487,7 +490,7 @@ function ingest(aoa){
     const loc=findCol(aoa[r],['samplelocation','location']);
     if(loc>=0){ hi=r; break; }
   }
-  if(hi<0) throw new Error('Could not find a "Sample Location" column. Make sure the copied sheet has headers: Timestamp, Job_Number, Inventory_Item, Sample Location.');
+  if(hi<0) throw new Error('Could not find a "Sample Location" column. Make sure the file has the same 4 columns as always (including the Sample Location header).');
   const h=aoa[hi];
   c={ts:findCol(h,['timestamp','date']), job:findCol(h,['jobnumber','job']), item:findCol(h,['inventoryitem','item','productid']), loc:findCol(h,['samplelocation','location'])};
   const rows=[], seen=new Set(), ignored={};
@@ -646,16 +649,17 @@ function render(){
 function runSearch(){
   const q=$('q').value.trim(), p=$('search');
   if(!q){p.hidden=true;return;}
-  const hit=effRows().filter(r=>!isPulled(r)&&(r.item===q||r.job===q||r.item.includes(q)&&q.length>=4));
+  const hit=effRows().filter(r=>!isPulled(r)&&(r.item===q||r.item.includes(q)&&q.length>=4));
   p.hidden=false;
   if(!hit.length){p.innerHTML=`<div class="sub">Nothing on hand matching “${esc(q)}”.</div>`;return;}
   const by={}; hit.forEach(r=>(by[r.box]=by[r.box]||[]).push(r));
-  p.innerHTML=`<h2>“${esc(q)}” is in:</h2>`+Object.keys(by).map(b=>`<div class="sug"><b>${esc(b)}</b><span class="pill ${locOf(b)==='Overflow'?'off':''}">${locOf(b)}</span><span class="sub">${by[b].length} sample${by[b].length>1?'s':''} · item ${[...new Set(by[b].map(r=>r.item))].join(', ')} · job ${[...new Set(by[b].map(r=>r.job))].join(', ')}</span><button data-open="${esc(b)}">Open</button></div>`).join('');
+  p.innerHTML=`<h2>“${esc(q)}” is in:</h2>`+Object.keys(by).map(b=>`<div class="sug"><b>${esc(b)}</b><span class="pill ${locOf(b)==='Overflow'?'off':''}">${locOf(b)}</span><span class="sub">${by[b].length} sample${by[b].length>1?'s':''} · item ${[...new Set(by[b].map(r=>r.item))].join(', ')}</span><button data-open="${esc(b)}">Open</button></div>`).join('');
 }
 
 /* ---------- box detail ---------- */
 function openBox(id){
   curBox=id; dupBy=dupIndex();
+  if(boxQBox!==id){ boxQ=''; boxQBox=id; }
   const rows=effRows().filter(r=>r.box===id).sort((a,c)=>(c.ts||0)-(a.ts||0));
   const left=rows.filter(r=>!isPulled(r)).length, cap=capOf(id), isFull=left>=cap;
   $('dt').textContent=`${id} — ${left} of ${cap}${isFull?' (FULL)':''}`;
@@ -676,10 +680,14 @@ function openBox(id){
       return `<input data-to="${esc(r.k)}" list="boxlist" value="${esc(to)}" placeholder="Now at: pick a box or type where" style="width:100%;min-width:170px">${to&&!n.box?'<div class="sub">not a box – leaves the boxes</div>':''}`; }
     return dupPill(r)+(r.from?`<span class="pill">moved in from ${esc(r.from)}</span> `:'')+(r.manual?`<span class="pill">manual</span> <button data-del="${esc(r.k)}" title="Delete this manual entry">✕</button>`:'');
   };
-  $('dbody').innerHTML=`<table><thead><tr><th>Pulled</th><th>Item #</th><th>Job #</th><th>Date</th><th>Location / note</th></tr></thead><tbody>`+
-    rows.map(r=>`<tr class="${isPulled(r)?'pulled':''}"><td><input type="checkbox" data-pull="${esc(r.k)}" ${isPulled(r)?'checked':''}></td><td>${esc(r.item||'—')}</td><td>${esc(r.job||'—')}</td><td>${fdate(r.ts)}</td><td class="np">${note(r)}</td></tr>`).join('')+`</tbody></table>
+  $('dbody').innerHTML=`<div class="bsearch"><input id="bsearch" type="search" placeholder="Search this box by product #" autocomplete="off" value="${esc(boxQ)}"><span class="sub" id="bcount"></span></div><table><thead><tr><th>Pulled</th><th>Item #</th><th>Date</th><th>Location / note</th></tr></thead><tbody>`+
+    rows.map(r=>`<tr class="${isPulled(r)?'pulled':''}" data-item="${esc(r.item||'')}"><td><input type="checkbox" data-pull="${esc(r.k)}" ${isPulled(r)?'checked':''}></td><td>${esc(r.item||'—')}</td><td>${fdate(r.ts)}</td><td class="np">${note(r)}</td></tr>`).join('')+`</tbody></table>
     <div class="sub" style="margin-top:8px">Tick “Pulled” when a sample leaves this box, then say where it is now (an existing box, a new box you type, or leave blank if it's gone). “Mark as full” sets this box's capacity to what it holds right now.</div>`;
   if(!$('dlg').open) $('dlg').showModal();
+  const applyBQ=()=>{ const raw=$('bsearch').value, q=raw.trim().toLowerCase(); boxQ=raw; let n=0,tot=0;
+    document.querySelectorAll('#dbody tbody tr').forEach(tr=>{ tot++; const ok=!q||(tr.dataset.item||'').toLowerCase().includes(q); tr.style.display=ok?'':'none'; if(ok) n++; });
+    $('bcount').textContent=q?(n+' of '+tot):''; };
+  $('bsearch').oninput=applyBQ; applyBQ();
   $('dbody').onchange=e=>{
     const t=e.target;
     if(t.dataset.pull!=null){
@@ -702,20 +710,19 @@ function openAdd(preBox){
   const today=new Date().toISOString().slice(0,10);
   $('dbody').innerHTML=`<p><label>Box<br><input id="abox" list="boxlist" value="${esc(preBox||'')}" placeholder="pick a box or type a new one, e.g. Box 42"></label></p>
     <p><label>Item # (Inventory_Item)<br><input id="aitem" inputmode="numeric"></label></p>
-    <p><label>Job # (optional)<br><input id="ajob" inputmode="numeric"></label></p>
     <p><label>Date<br><input id="adate" type="date" value="${today}"></label></p>
     <p id="amsg" class="sub"></p>
     <p><button class="pri" id="asave">Add to box</button></p>
-    <div class="sub">Entries added here are kept on this device and survive re-importing the sheet. If the sheet later contains the same item/job in that box, the manual copy is dropped so nothing is counted twice.</div>`;
+    <div class="sub">Entries added here are kept on this device and survive re-importing the sheet. If the sheet later contains the same product in that box, the manual copy is dropped so nothing is counted twice.</div>`;
   if(!$('dlg').open) $('dlg').showModal();
   $('asave').onclick=()=>{
-    const n=normLoc($('abox').value), item=$('aitem').value.trim(), job=$('ajob').value.trim(), msg=$('amsg');
+    const n=normLoc($('abox').value), item=$('aitem').value.trim(), job='', msg=$('amsg');
     if(!n.box){ msg.textContent='Box must look like “Box 12” or “Calchef 2”.'; return; }
-    if(!item&&!job){ msg.textContent='Enter an item # or a job #.'; return; }
+    if(!item){ msg.textContent='Enter the product # (item #).'; return; }
     const dv=$('adate').value, d=(!dv||dv===new Date().toISOString().slice(0,10))?Date.now():new Date(dv+'T12:00:00').getTime();
     state.manual.push({k:'m'+Date.now()+Math.random().toString(36).slice(2,6),box:n.box,series:n.series||'Box',ts:d,job,item,manual:true});
     save(); op({op:'addManual',entry:state.manual[state.manual.length-1]}); render();
-    $('aitem').value=''; $('ajob').value=''; msg.textContent=`Added to ${n.box}. Add another, or close.`; $('aitem').focus();
+    $('aitem').value=''; msg.textContent=`Added to ${n.box}. Add another, or close.`; $('aitem').focus();
   };
 }
 
@@ -902,16 +909,16 @@ const HELP={
  en:{title:'Help / FAQ',items:[
   ['What is this app for?','It shows which box each internal color / CAD reference sample is in, how full every box is, and which boxes can be combined. Everyone who opens this page sees the same data.'],
   ['How do I read a box card?','The name is the box. “74 / 100” means 74 samples are in it and it holds 100. A glowing <b>flame</b> means there is still room (with how full it is). A pulsing <b>blue ring</b> means it can be merged with another box. A bronze <b>crest</b> means FULL. Boxes are grouped as “The Grand Rotunda” (Main location) and “The Outer Vaults” (Overflow). Tap a card to see what is inside.'],
-  ['How do I find where a sample is?','Type the item # or job # in the search bar at the top. It lists every box that has that sample. Tap Open to see it.'],
+  ['How do I find where a sample is?','Type the product # (item #) in the search bar at the top. It lists every box that has that sample. Tap Open to see it. Inside a box window, use its own search field to find a product in that box.'],
   ['A sample leaves a box (CSR / sales request)','Open the box, tick <b>Pulled</b> on that sample, then in “Now at” pick the box it went to, or type where it is now (for example “Box 12”). If it is gone for good, leave it blank. The count in both boxes updates for everyone.'],
   ['I tapped Pulled by mistake','Untick it. The sample goes back into the box.'],
   ['How do I mark a box as full?','Open the box and tap <b>Mark as full</b>. The app remembers that this box is full at today’s count, so boxes with bigger samples can be “full” at fewer samples. Tap <b>Unmark full</b> to undo.'],
-  ['How do I add a sample by hand?','Tap <b>+ Add sample</b> (top, or inside a box). Pick or type the box, enter the item # (and job # if you have it), then tap Add to box. You can add several in a row. To remove one you added by mistake, open the box and tap the ✕ next to it.'],
+  ['How do I add a sample by hand?','Tap <b>+ Add sample</b> (top, or inside a box). Pick or type the box, enter the product # (item #), then tap Add to box. You can add several in a row. To remove one you added by mistake, open the box and tap the ✕ next to it.'],
   ['How do I combine (merge) boxes?','Tap <b>Merge / renumber boxes</b> (or <b>Merge…</b> on a suggestion). Tick the boxes to combine, type the box number the finished box should have (one of them or a brand-new number), check the capacity, then tap Apply. Move the samples physically too. Made a mistake? Settings → Recent box changes → Undo.'],
   ['How do I change a box number?','Open the box and tap <b>Change number</b>, type the new number and Apply. All its samples move with it. Typing the number of another existing box merges them. You can undo it in Settings.'],
   ['How do I delete a box?','Open the box and tap <b>Delete box</b>. The app asks “Are you sure?” and tells you how many samples are in it. Tap <b>Yes, delete</b> to confirm. The box disappears for everyone. Changed your mind? Settings → Recent box changes → Undo. To keep the samples, merge the box into another one instead.'],
   ['How do I find and clean up duplicate products?','Tap <b>Review duplicates</b> (or the “duplicate products” number at the top). Each entry is one product that is on hand more than once. For each one you can: <b>Keep only in [box]</b> (removes it from the other boxes, after asking), <b>Remove</b> one sample, <b>Open box</b>, or <b>Mark reviewed</b> if you want to keep them all (it comes back only if another copy is added). Use the filter to see just products in different boxes or several in one box. Inside any box, a gold “also in Box X” tag shows its duplicates. <b>Export to Excel</b> downloads the list you are looking at. Nothing changes until you press a button.'],
-  ['How do I update the data from the Google Sheet?','Copy the 4 columns (Timestamp, Job_Number, Inventory_Item, Sample Location) into an Excel file, then drag it onto the dotted box at the top (or tap it to choose the file). The app only reads those columns and ignores everything else. It asks you to confirm because it <b>replaces the data for everyone</b>. Pulls and manual entries are kept.'],
+  ['How do I update the data from the Google Sheet?','Copy the same 4 columns from the sheet as always into an Excel file, then drag it onto the dotted box at the top (or tap it to choose the file). The app only reads those columns and ignores everything else. It asks you to confirm because it <b>replaces the data for everyone</b>. Pulls and manual entries are kept.'],
   ['Some entries are missing','Only locations that look like a box (Box 12, Bx12, Calchef 2…) are counted. Things like “Given to Johana” or “1st pass” are ignored. See the line “Location entries ignored” at the bottom. Typing “Box 12” the same way every time works best.'],
   ['What does “Offline – changes waiting” mean?','Your phone or PC lost the connection. Your changes are saved on the device and will send automatically when it is back. Keep the page open until it says “synced”.'],
   ['What are Main and Overflow?','Where the box is kept. Set it inside the box window. Use the filter at the top to see only one location.'],
@@ -920,16 +927,16 @@ const HELP={
  es:{title:'Ayuda / Preguntas',items:[
   ['¿Para qué sirve esta app?','Muestra en qué caja está cada muestra de referencia (color / CAD), qué tan llena está cada caja y qué cajas se pueden juntar. Todos ven los mismos datos.'],
   ['¿Cómo leo la tarjeta de una caja?','El nombre es la caja. “74 / 100” = hay 74 muestras y caben 100. Una <b>llama</b> brillante = todavía hay espacio (y qué tan llena está). Un <b>anillo azul</b> que pulsa = se puede juntar con otra caja. Un <b>escudo</b> de bronce = llena (FULL). Las cajas están agrupadas en “The Grand Rotunda” (Main) y “The Outer Vaults” (Overflow). Toca la tarjeta para ver lo que tiene.'],
-  ['¿Cómo encuentro una muestra?','Escribe el número de artículo o de trabajo en la barra de búsqueda. Te dice en qué caja(s) está. Toca Open para verla.'],
+  ['¿Cómo encuentro una muestra?','Escribe el número de producto (artículo) en la barra de búsqueda. Te dice en qué caja(s) está. Toca Open para verla. Dentro de una caja, usa su propio campo de búsqueda para encontrar un producto en esa caja.'],
   ['Sacan una muestra de una caja','Abre la caja, marca <b>Pulled</b> en esa muestra y en “Now at” elige la caja a donde fue, o escribe dónde está (por ejemplo “Box 12”). Si ya no existe, déjalo vacío. Los conteos se actualizan para todos.'],
   ['Marqué Pulled por error','Quita la marca. La muestra vuelve a la caja.'],
   ['¿Cómo marco una caja como llena?','Abre la caja y toca <b>Mark as full</b>. La app recuerda que esa caja está llena con el número de hoy (las cajas con muestras grandes se llenan con menos). Toca <b>Unmark full</b> para deshacer.'],
-  ['¿Cómo agrego una muestra a mano?','Toca <b>+ Add sample</b>. Elige o escribe la caja, el número de artículo (y de trabajo si lo tienes) y toca Add to box. Para borrar una que agregaste por error, abre la caja y toca la ✕.'],
+  ['¿Cómo agrego una muestra a mano?','Toca <b>+ Add sample</b>. Elige o escribe la caja, el número de producto (artículo) y toca Add to box. Para borrar una que agregaste por error, abre la caja y toca la ✕.'],
   ['¿Cómo junto (combino) cajas?','Toca <b>Merge / renumber boxes</b> (o <b>Merge…</b> en una sugerencia). Marca las cajas, escribe el número que tendrá la caja final (uno de ellos o uno nuevo), revisa la capacidad y toca Apply. Mueve también las muestras físicamente. ¿Error? Settings → Recent box changes → Undo.'],
   ['¿Cómo cambio el número de una caja?','Abre la caja y toca <b>Change number</b>, escribe el número nuevo y Apply. Todas sus muestras se van con ella. Si escribes el número de otra caja, se juntan. Se puede deshacer en Settings.'],
   ['¿Cómo borro una caja?','Abre la caja y toca <b>Delete box</b>. La app pregunta “¿Estás seguro?” y dice cuántas muestras tiene. Toca <b>Yes, delete</b> para confirmar. La caja desaparece para todos. ¿Te arrepentiste? Settings → Recent box changes → Undo. Para conservar las muestras, junta la caja con otra.'],
   ['¿Cómo encuentro y limpio productos duplicados?','Toca <b>Review duplicates</b> (o el número “duplicate products” arriba). Cada entrada es un producto que está más de una vez. Puedes: <b>Keep only in [caja]</b> (lo quita de las otras cajas, después de preguntar), <b>Remove</b> una muestra, <b>Open box</b>, o <b>Mark reviewed</b> si quieres dejarlos todos. El filtro muestra solo los de cajas distintas o varios en una caja. Dentro de una caja, la etiqueta dorada “also in Box X” muestra sus duplicados. <b>Export to Excel</b> descarga la lista que estás viendo. Nada cambia hasta que toques un botón.'],
-  ['¿Cómo actualizo los datos?','Copia las 4 columnas (Timestamp, Job_Number, Inventory_Item, Sample Location) a un archivo de Excel y arrástralo al cuadro punteado de arriba. La app solo lee esas columnas. Te pide confirmar porque <b>cambia los datos para todos</b>. Los Pulled y las muestras manuales se conservan.'],
+  ['¿Cómo actualizo los datos?','Copia las mismas 4 columnas de siempre a un archivo de Excel y arrástralo al cuadro punteado de arriba. La app solo lee esas columnas. Te pide confirmar porque <b>cambia los datos para todos</b>. Los Pulled y las muestras manuales se conservan.'],
   ['Faltan algunas entradas','Solo se cuentan ubicaciones que parecen una caja (Box 12, Bx12, Calchef 2…). “Given to Johana” o “1st pass” se ignoran (ver abajo “Location entries ignored”). Escribe “Box 12” siempre igual.'],
   ['¿Qué significa “Offline – changes waiting”?','Se perdió la conexión. Tus cambios están guardados y se envían solos cuando regrese. Deja la página abierta hasta que diga “synced”.'],
   ['¿Qué son Main y Overflow?','Dónde está guardada la caja. Se cambia dentro de la ventana de la caja. Usa el filtro de arriba para ver un solo lugar.'],
@@ -984,6 +991,7 @@ async function hardRefresh(){
 $('updateBtn').onclick=hardRefresh;
 try{ const cu=new URL(location.href); if(cu.searchParams.has('v')){ cu.searchParams.delete('v'); history.replaceState(null,'',cu.pathname+cu.search+cu.hash); } }catch(e){}
 $('helpBtn').onclick=openHelp;
+$('dlg').addEventListener('close',()=>{ boxQBox=null; });
 const drop=$('drop'), fi=$('file');
 drop.onclick=()=>fi.click();
 fi.onchange=()=>fi.files[0]&&readFile(fi.files[0]);
