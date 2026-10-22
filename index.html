@@ -347,12 +347,16 @@ td.sel,th:first-child{width:34px}
 .stick #search{margin:10px 0 0;max-height:42vh;overflow-y:auto}
 .bsticky{position:sticky;top:-10px;z-index:6;background:var(--card);padding:16px 0 2px}
 #dbody th{top:calc(var(--stk,0px) - 10px);z-index:5}
+button:disabled{opacity:.4;cursor:default;box-shadow:none}
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(14px);z-index:100;background:var(--ink);color:var(--bg);padding:11px 20px;border-radius:99px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .3s,transform .3s;max-width:92vw;text-align:center}
+.toast.show{opacity:1;transform:translateX(-50%)}
 </style>
 </head>
 <body>
 <div class="wrap">
   <header class="hero">
     <div class="tools">
+      <button id="undoBtn" disabled title="Nothing to undo yet"><span class="ico" data-ic="undo"></span><span class="lbl">Undo</span></button>
       <button id="updateBtn" title="Reload the newest version of the app"><span class="ico" data-ic="update"></span><span class="lbl">Update</span></button>
       <button id="themeBtn" title="Switch light / dark"><span class="ico" data-ic="moon"></span><span class="lbl">Dark</span></button>
       <button id="helpBtn" title="How to use this app"><span class="ico" data-ic="help"></span><span class="lbl">Help / FAQ</span></button>
@@ -401,15 +405,17 @@ td.sel,th:first-child{width:34px}
   </div>
 </div>
 
+<div id="toast" class="toast" role="status"></div>
 <datalist id="boxlist"></datalist>
-<dialog id="dlg"><div class="dh"><h3 id="dt"></h3><span id="dctl"></span><button id="dclose">Close</button></div><div class="db" id="dbody"></div></dialog>
+<dialog id="dlg"><div class="dh"><h3 id="dt"></h3><span id="dctl"></span><button id="dundoBtn" class="sm" disabled>Undo</button><button id="dclose">Close</button></div><div class="db" id="dbody"></div></dialog>
 
 <script>
 "use strict";
 const LS = 'sampleBoxTracker.v1';
 let state = load();           // {cap:100, boxMeta:{id:{loc,cap}}, pulled:{rowKey:1}, rows:[...], stamp}
 function load(){ try{ const s=JSON.parse(localStorage.getItem(LS)); if(s&&s.rows){ s.manual=s.manual||[]; s.moves=s.moves||[]; s.dismissed=s.dismissed||{}; s.notes=s.notes||{}; return s; } }catch(e){} return {cap:100,boxMeta:{},pulled:{},manual:[],moves:[],dismissed:{},notes:{},rows:[],stamp:null}; }
-function save(){ try{ localStorage.setItem(LS, JSON.stringify(state)); }catch(e){} }
+function save(){ try{ localStorage.setItem(LS, JSON.stringify(state)); }catch(e){}
+  if(typeof undoReady!=='undefined'&&undoReady&&!undoing&&!commitT) commitT=setTimeout(undoCommit,0); }
 
 /* ---------- shared backend (Google Apps Script + Google Sheet) ----------
    Leave BACKEND_URL empty to run local-only. Every change is queued in an outbox, sent as one small
@@ -420,7 +426,7 @@ const OB = 'sampleBoxTracker.outbox';
 let outbox = (()=>{ try{ return JSON.parse(localStorage.getItem(OB))||[]; }catch(e){ return []; } })();
 let flushing=false, polling=false, lastSync=null, syncErr=null;
 const saveOutbox=()=>{ try{ localStorage.setItem(OB, JSON.stringify(outbox)); }catch(e){} };
-function op(o){ if(!BACKEND_URL) return; outbox.push(o); saveOutbox(); showSync(); flush(); }
+function op(o){ if(o.op==='import') undoReset(); if(!BACKEND_URL) return; outbox.push(o); saveOutbox(); showSync(); flush(); }
 const opMeta=box=>op({op:'setMeta',box,meta:state.boxMeta[box]||null});
 const opPull=k=>op({op:'setPull',pull:Object.assign({k},state.pulled[k])});
 async function flush(){
@@ -457,7 +463,7 @@ async function poll(force){
       }
       if('notes' in s){ const ln=state.notes||{}; state.notes=Object.assign({},s.notes);
         if(!serverNotes){ serverNotes=true; for(const k in ln) if(!s.notes[k]){ state.notes[k]=ln[k]; op({op:'setNote',k,text:ln[k].text,at:ln[k].at}); } } }
-      state.v=j.v; save();
+      state.v=j.v; save(); undoSync();
       const dlg=$('dlg');
       render();
       if(dlg.open && curBox && !dlg.contains(document.activeElement)) openBox(curBox);
@@ -956,6 +962,79 @@ function exportDupes(list){
   if(!$('dlg').open) $('dlg').showModal();
 }
 document.addEventListener('click',e=>{ if(e.target.closest('[data-dupes]')) openDupes(); });
+/* ---------- undo your last change ----------
+   Every user action changes small pieces of shared state (pulls, deletes, notes, box settings, merges...).
+   After each action we diff those pieces against the previous snapshot; the diff is the undo entry.
+   Undo restores exactly those pieces and sends the matching writes, so it syncs like any other change. */
+var undoStack=[], lastSnap=null, commitT=0, undoing=false, undoReady=false;
+const UNDO_SL=['pulled','manual','boxMeta','notes','dismissed','moves'];
+function undoMaps(){
+  const o={pulled:{},manual:{},boxMeta:{},notes:{},dismissed:{},moves:{}};
+  for(const k in state.pulled) o.pulled[k]=JSON.stringify(state.pulled[k]);
+  state.manual.forEach(m=>{ o.manual[m.k]=JSON.stringify(m); });
+  for(const b in state.boxMeta){ const m=state.boxMeta[b]; if(m&&Object.keys(m).length) o.boxMeta[b]=JSON.stringify(m); }
+  for(const k in state.notes) o.notes[k]=JSON.stringify(state.notes[k]);
+  for(const k in state.dismissed) o.dismissed[k]=JSON.stringify(state.dismissed[k]);
+  const g={}; state.moves.forEach(m=>{ (g[m.g]=g[m.g]||[]).push(m); }); for(const k in g) o.moves[k]=JSON.stringify(g[k]);
+  o.cap=state.cap; return o;
+}
+function undoSync(){ lastSnap=undoMaps(); if(commitT){ clearTimeout(commitT); commitT=0; } }
+function undoReset(){ undoStack.length=0; undoSync(); undoUI(); }
+function undoLabel(before,now){
+  const P=[]; let del=0,pul=0,res=0;
+  for(const k in (before.pulled||{})){ const a=now.pulled[k]; if(a===undefined) res++; else if(JSON.parse(a).to===DELD) del++; else pul++; }
+  if(del) P.push('Deleted '+del+' product'+(del>1?'s':'')); if(pul) P.push('Pulled '+pul+' product'+(pul>1?'s':'')); if(res) P.push('Restored '+res+' product'+(res>1?'s':''));
+  let add=0,rm=0; for(const k in (before.manual||{})){ if(now.manual[k]!==undefined) add++; else rm++; }
+  if(add) P.push('Added '+add+' sample'+(add>1?'s':'')); if(rm) P.push('Removed '+rm+' manual sample'+(rm>1?'s':''));
+  for(const g in (before.moves||{})){ const a=now.moves[g]; if(a===undefined) P.push('Undid a box change'); else { const mv=JSON.parse(a); P.push(mv[0].to===DEL?'Deleted a box':mv.length>1?'Merged boxes':'Renumbered a box'); } }
+  const nn=Object.keys(before.notes||{}).length; if(nn) P.push(nn>1?'Changed '+nn+' notes':'Changed a note');
+  const dm=Object.keys(before.dismissed||{}).length; if(dm) P.push('Reviewed duplicates');
+  if(before.boxMeta) P.push('Changed box settings'); if('cap' in before) P.push('Changed default capacity');
+  return P.slice(0,3).join(', ')||'Change';
+}
+function undoCommit(){
+  commitT=0; if(!undoReady||undoing||!lastSnap) return;
+  const now=undoMaps(), before={}; let any=false;
+  for(const sl of UNDO_SL){ const a=lastSnap[sl], b=now[sl], ch={};
+    new Set([...Object.keys(a),...Object.keys(b)]).forEach(k=>{ if(a[k]!==b[k]) ch[k]=a[k]===undefined?null:a[k]; });
+    if(Object.keys(ch).length){ before[sl]=ch; any=true; } }
+  if(lastSnap.cap!==now.cap){ before.cap=lastSnap.cap; any=true; }
+  if(any){ undoStack.push({before,label:undoLabel(before,now)}); if(undoStack.length>30) undoStack.shift(); }
+  lastSnap=now; undoUI();
+}
+function undoUI(){
+  const u=undoStack[undoStack.length-1], t=u?'Undo: '+u.label:'Nothing to undo yet';
+  ['undoBtn','dundoBtn'].forEach(id=>{ const b=document.getElementById(id); if(b){ b.disabled=!u; b.title=t; } });
+}
+let toastT=0;
+function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),3800); }
+function undoLast(){
+  const u=undoStack.pop(); if(!u) return; undoing=true;
+  try{
+    const b=u.before;
+    for(const k in (b.pulled||{})){ const v=b.pulled[k]; if(v===null){ delete state.pulled[k]; op({op:'clearPull',k}); } else { state.pulled[k]=JSON.parse(v); opPull(k); } }
+    for(const k in (b.manual||{})){ const v=b.manual[k]; state.manual=state.manual.filter(m=>m.k!==k); if(v===null) op({op:'delManual',k}); else { const e=JSON.parse(v); state.manual.push(e); op({op:'addManual',entry:e}); } }
+    for(const box in (b.boxMeta||{})){ const v=b.boxMeta[box]; if(v===null) delete state.boxMeta[box]; else state.boxMeta[box]=JSON.parse(v); opMeta(box); }
+    for(const k in (b.notes||{})){ const v=b.notes[k]; if(v===null){ delete state.notes[k]; if(serverNotes) op({op:'delNote',k}); } else { const n=JSON.parse(v); state.notes[k]=n; if(serverNotes) op({op:'setNote',k,text:n.text,at:n.at}); } }
+    for(const k in (b.dismissed||{})){ const v=b.dismissed[k]; if(v===null){ delete state.dismissed[k]; if(serverDismiss) op({op:'undismissDup',item:k}); } else { const d=JSON.parse(v); state.dismissed[k]=d; if(serverDismiss) op({op:'dismissDup',item:k,at:d.at,n:d.n}); } }
+    for(const g in (b.moves||{})){ const v=b.moves[g]; state.moves=state.moves.filter(m=>m.g!==g); if(v===null) op({op:'delMoves',g}); else JSON.parse(v).forEach(m=>{ state.moves.push(m); op({op:'addMove',move:m}); }); }
+    state.moves.sort((x,y)=>x.at-y.at);
+    if('cap' in b){ state.cap=b.cap; op({op:'setCap',cap:b.cap}); }
+    save();
+  } finally { undoing=false; }
+  undoSync(); render();
+  if($('dlg').open){ if(curBox) openBox(curBox); else if($('dt').textContent==='Duplicate products') openDupes(); }
+  undoUI(); toast('Undone: '+u.label);
+}
+$('undoBtn').onclick=undoLast; $('dundoBtn').onclick=undoLast;
+document.addEventListener('keydown',e=>{
+  if((e.ctrlKey||e.metaKey)&&!e.shiftKey&&e.key.toLowerCase()==='z'){
+    const t=e.target, tag=(t&&t.tagName||'').toLowerCase(); if(tag==='input'||tag==='textarea'||tag==='select'||(t&&t.isContentEditable)) return;
+    if(undoStack.length){ e.preventDefault(); undoLast(); }
+  }
+});
+undoReady=true; undoSync(); undoUI();
+
 /* ---------- help / FAQ (English + simple Spanish) ---------- */
 const HELP={
  en:{title:'Help / FAQ',items:[
@@ -968,6 +1047,7 @@ const HELP={
   ['How do I add a sample by hand?','Tap <b>+ Add sample</b> (top, or inside a box). Pick or type the box, enter the product # (item #), then tap Add to box. You can add several in a row. To remove one you added by mistake, open the box and tap the ✕ next to it.'],
   ['How do I combine (merge) boxes?','Tap <b>Merge / renumber boxes</b> (or <b>Merge…</b> on a suggestion). Tick the boxes to combine, type the box number the finished box should have (one of them or a brand-new number), check the capacity, then tap Apply. Move the samples physically too. Made a mistake? Settings → Recent box changes → Undo.'],
   ['How do I change a box number?','Open the box and tap <b>Change number</b>, type the new number and Apply. All its samples move with it. Typing the number of another existing box merges them. You can undo it in Settings.'],
+  ['How do I undo my last change?','Tap <b>Undo</b> (top right, or in any box window) or press <b>Ctrl+Z</b>. It reverses your last change: a delete, pull, merge, note, mark full, and so on. Tap again to go back further (up to 30 steps while the page stays open). It only undoes <b>your own</b> changes on this device, and it cannot undo importing a new sheet.'],
   ['How do I delete a box?','Open the box and tap <b>Delete box</b>. The app asks “Are you sure?” and tells you how many samples are in it. Tap <b>Yes, delete</b> to confirm. The box disappears for everyone. Changed your mind? Settings → Recent box changes → Undo. To keep the samples, merge the box into another one instead.'],
   ['How do I delete one product from a box?','Open the box, find the product (the box has its own search field), and tap <b>Delete</b> on its row. The app asks “Are you sure?”. The product disappears for everyone. Changed your mind? Tap <b>Restore</b> on that row. Use <b>Pulled</b> instead when the product moved to another box. To delete many at once, tick the boxes in the first column (the top box selects everything shown) and tap <b>Delete selected</b>.'],
   ['How do I add a note to a product?','Open the box and tap <b>+ Note</b> on the product’s row, type your note and tap <b>Save</b> (or press Enter). Tap <b>Edit</b> to change it, or <b>Delete</b> inside the editor to remove it. Notes are shared with everyone, the box search also finds words inside notes, and the Excel export includes them. A note stays with that sample even if you move it to another box.'],
@@ -988,6 +1068,7 @@ const HELP={
   ['¿Cómo agrego una muestra a mano?','Toca <b>+ Add sample</b>. Elige o escribe la caja, el número de producto (artículo) y toca Add to box. Para borrar una que agregaste por error, abre la caja y toca la ✕.'],
   ['¿Cómo junto (combino) cajas?','Toca <b>Merge / renumber boxes</b> (o <b>Merge…</b> en una sugerencia). Marca las cajas, escribe el número que tendrá la caja final (uno de ellos o uno nuevo), revisa la capacidad y toca Apply. Mueve también las muestras físicamente. ¿Error? Settings → Recent box changes → Undo.'],
   ['¿Cómo cambio el número de una caja?','Abre la caja y toca <b>Change number</b>, escribe el número nuevo y Apply. Todas sus muestras se van con ella. Si escribes el número de otra caja, se juntan. Se puede deshacer en Settings.'],
+  ['¿Cómo deshago mi último cambio?','Toca <b>Undo</b> (arriba a la derecha, o en la ventana de cualquier caja) o presiona <b>Ctrl+Z</b>. Revierte tu último cambio: borrar, pull, juntar cajas, nota, marcar llena, etc. Toca otra vez para retroceder más (hasta 30 pasos mientras la página siga abierta). Solo deshace <b>tus propios</b> cambios en este dispositivo y no puede deshacer la importación de una hoja nueva.'],
   ['¿Cómo borro una caja?','Abre la caja y toca <b>Delete box</b>. La app pregunta “¿Estás seguro?” y dice cuántas muestras tiene. Toca <b>Yes, delete</b> para confirmar. La caja desaparece para todos. ¿Te arrepentiste? Settings → Recent box changes → Undo. Para conservar las muestras, junta la caja con otra.'],
   ['¿Cómo borro un solo producto de una caja?','Abre la caja, busca el producto (la caja tiene su propio campo de búsqueda) y toca <b>Delete</b> en su fila. La app pregunta “¿Estás seguro?”. El producto desaparece para todos. ¿Te arrepentiste? Toca <b>Restore</b> en esa fila. Usa <b>Pulled</b> cuando el producto se movió a otra caja. Para borrar varios a la vez, marca las casillas de la primera columna (la de arriba selecciona todo lo que se ve) y toca <b>Delete selected</b>.'],
   ['¿Cómo agrego una nota a un producto?','Abre la caja y toca <b>+ Note</b> en la fila del producto, escribe tu nota y toca <b>Save</b> (o presiona Enter). Toca <b>Edit</b> para cambiarla o <b>Delete</b> dentro del editor para quitarla. Las notas las ve todo el mundo, la búsqueda de la caja también encuentra palabras de las notas y el Excel las incluye. La nota se queda con esa muestra aunque la muevas a otra caja.'],
@@ -1012,6 +1093,7 @@ function openHelp(){
 
 /* ---------- bronze line icons ---------- */
 const IC={
+  undo:'<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
   update:'<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>',
   moon:'<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
   sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/>',
