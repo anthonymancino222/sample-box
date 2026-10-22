@@ -321,7 +321,13 @@ th,td{padding:10px 12px}
 button.danger{border-color:var(--danger);color:var(--danger)}
 button.danger:hover{background:var(--danger);color:#fff8ef;border-color:var(--danger);box-shadow:none}
 :root{--danger:#a5442e}
-:root[data-theme="dark"]{--danger:#e08a76}</style>
+:root[data-theme="dark"]{--danger:#e08a76}.dup{border:1px solid var(--line2);border-radius:12px;padding:14px 18px;margin:12px 0;background:var(--card2)}
+.dup-h{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.dup-h b{font:600 17px var(--mono);color:var(--data)}
+.dupbox{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;padding:12px 0 4px;border-top:1px solid var(--line);margin-top:12px}
+.dupe{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:6px 0 6px 16px;font:12.5px var(--mono);color:var(--mute)}
+.dup button,.dupe button{padding:6px 14px;font-size:12px}
+.pill.dupill{background:var(--warnbg);color:var(--warn);border-color:transparent;text-transform:none;letter-spacing:0}</style>
 </head>
 <body>
 <div class="wrap">
@@ -360,6 +366,7 @@ button.danger:hover{background:var(--danger);color:#fff8ef;border-color:var(--da
         <option value="fill">Sort: emptiest first</option>
       </select>
       <button id="addBtn" class="pri"><span class="ico" data-ic="stylus"></span><span class="lbl">Add sample</span></button>
+      <button id="dupBtn"><span class="ico" data-ic="dup"></span><span class="lbl">Review duplicates</span></button>
       <button id="mergeBtn"><span class="ico" data-ic="knot"></span><span class="lbl">Merge / renumber boxes</span></button>
       <button id="settings"><span class="ico" data-ic="gear"></span><span class="lbl">Settings</span></button>
     </div>
@@ -379,7 +386,7 @@ button.danger:hover{background:var(--danger);color:#fff8ef;border-color:var(--da
 "use strict";
 const LS = 'sampleBoxTracker.v1';
 let state = load();           // {cap:100, boxMeta:{id:{loc,cap}}, pulled:{rowKey:1}, rows:[...], stamp}
-function load(){ try{ const s=JSON.parse(localStorage.getItem(LS)); if(s&&s.rows){ s.manual=s.manual||[]; s.moves=s.moves||[]; return s; } }catch(e){} return {cap:100,boxMeta:{},pulled:{},manual:[],moves:[],rows:[],stamp:null}; }
+function load(){ try{ const s=JSON.parse(localStorage.getItem(LS)); if(s&&s.rows){ s.manual=s.manual||[]; s.moves=s.moves||[]; s.dismissed=s.dismissed||{}; return s; } }catch(e){} return {cap:100,boxMeta:{},pulled:{},manual:[],moves:[],dismissed:{},rows:[],stamp:null}; }
 function save(){ try{ localStorage.setItem(LS, JSON.stringify(state)); }catch(e){} }
 
 /* ---------- shared backend (Google Apps Script + Google Sheet) ----------
@@ -421,7 +428,12 @@ async function poll(force){
     if(!j.unchanged && j.state){
       const s=j.state;
       state.cap=s.cap; state.stamp=s.stamp; state.ignored=s.ignored; state.boxMeta=s.boxMeta; state.pulled=s.pulled;
-      state.rows=s.rows; state.manual=s.manual; state.moves=s.moves||[]; state.v=j.v; save();
+      state.rows=s.rows; state.manual=s.manual; state.moves=s.moves||[];
+      if('dismissed' in s){
+        const localD=state.dismissed||{}; state.dismissed=Object.assign({},s.dismissed);
+        if(!serverDismiss){ serverDismiss=true; for(const k in localD) if(!s.dismissed[k]){ state.dismissed[k]=localD[k]; op({op:'dismissDup',item:k,at:localD[k].at,n:localD[k].n}); } }
+      }
+      state.v=j.v; save();
       const dlg=$('dlg');
       render();
       if(dlg.open && curBox && !dlg.contains(document.activeElement)) openBox(curBox);
@@ -436,7 +448,7 @@ function showSync(){
   el.textContent = syncErr ? `⚠ Offline – ${outbox.length} change${outbox.length==1?'':'s'} waiting` :
     outbox.length ? 'Saving…' : lastSync ? 'Shared · synced '+new Date(lastSync).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}) : 'Connecting…';
 }
-let curBox=null;
+let curBox=null, serverDismiss=false;
 
 /* ---------- location normalizer: messy free text -> box id or null ---------- */
 function normLoc(raw){
@@ -589,10 +601,10 @@ function render(){
   if(!has) return;
   const list=boxes(), sug=suggestions(list);
   const mergeable=new Set(); sug.forEach(s=>{mergeable.add(s.from.id);});
-  const total=list.reduce((a,b)=>a+b.left,0), over=list.filter(b=>b.loc==='Overflow').length;
+  const total=list.reduce((a,b)=>a+b.left,0), over=list.filter(b=>b.loc==='Overflow').length, dupTodo=dupGroups().filter(g=>!g.reviewed).length;
   $('tiles').innerHTML=[
-    [list.length,'active boxes'],[total,'samples on hand'],[over,'in overflow location'],[sug.length,'merges possible'],
-  ].map(([n,l])=>`<div class="tile"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
+    [list.length,'active boxes'],[total,'samples on hand'],[over,'in overflow location'],[sug.length,'merges possible'],[dupTodo,'duplicate products'],
+  ].map(([n,l],i)=>`<div class="tile"${i===4?' data-dupes="1" style="cursor:pointer" title="Review duplicate products"':''}><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
 
   $('mergePanel').innerHTML = `<h2>Consolidation suggestions</h2>` + (sug.length ? sug.map(s=>`
     <div class="sug"><span><b>${esc(s.from.id)}</b> (${s.from.left}${s.from.loc!=='Main'?', '+s.from.loc:''}) &rarr; <b>${esc(s.to.id)}</b> (${s.to.left}${s.to.loc!=='Main'?', '+s.to.loc:''})</span>
@@ -643,7 +655,7 @@ function runSearch(){
 
 /* ---------- box detail ---------- */
 function openBox(id){
-  curBox=id;
+  curBox=id; dupBy=dupIndex();
   const rows=effRows().filter(r=>r.box===id).sort((a,c)=>(c.ts||0)-(a.ts||0));
   const left=rows.filter(r=>!isPulled(r)).length, cap=capOf(id), isFull=left>=cap;
   $('dt').textContent=`${id} — ${left} of ${cap}${isFull?' (FULL)':''}`;
@@ -662,7 +674,7 @@ function openBox(id){
     const p=state.pulled[r.k];
     if(p){ const to=p.to||''; const n=to?normLoc(to):{};
       return `<input data-to="${esc(r.k)}" list="boxlist" value="${esc(to)}" placeholder="Now at: pick a box or type where" style="width:100%;min-width:170px">${to&&!n.box?'<div class="sub">not a box – leaves the boxes</div>':''}`; }
-    return (r.from?`<span class="pill">moved in from ${esc(r.from)}</span> `:'')+(r.manual?`<span class="pill">manual</span> <button data-del="${esc(r.k)}" title="Delete this manual entry">✕</button>`:'');
+    return dupPill(r)+(r.from?`<span class="pill">moved in from ${esc(r.from)}</span> `:'')+(r.manual?`<span class="pill">manual</span> <button data-del="${esc(r.k)}" title="Delete this manual entry">✕</button>`:'');
   };
   $('dbody').innerHTML=`<table><thead><tr><th>Pulled</th><th>Item #</th><th>Job #</th><th>Date</th><th>Location / note</th></tr></thead><tbody>`+
     rows.map(r=>`<tr class="${isPulled(r)?'pulled':''}"><td><input type="checkbox" data-pull="${esc(r.k)}" ${isPulled(r)?'checked':''}></td><td>${esc(r.item||'—')}</td><td>${esc(r.job||'—')}</td><td>${fdate(r.ts)}</td><td class="np">${note(r)}</td></tr>`).join('')+`</tbody></table>
@@ -719,7 +731,7 @@ function openSettings(){
   if(gs.length) $('dbody').insertAdjacentHTML('beforeend','<h4 style="font:600 20px var(--serif);margin:14px 0 4px">Recent box changes</h4>'+gs.map(x=>`<div class="sug"><span>${esc(x.txt)}</span><span class="sub">${new Date(x.at).toLocaleDateString()}</span><button data-undo="${x.g}">Undo</button></div>`).join(''));
   $('dbody').onclick=e=>{ const g=e.target.dataset&&e.target.dataset.undo; if(g&&confirm('Undo this box change?')){ undoMerge(g); openSettings(); } };
   $('scap').onchange=e=>{const n=parseInt(e.target.value,10); if(n>0){state.cap=n;save();op({op:'setCap',cap:n});render();}};
-  if($('sclear')) $('sclear').onclick=()=>{ if(confirm('Remove all imported data and pull marks from this device?')){state={cap:state.cap,boxMeta:state.boxMeta,pulled:{},manual:[],moves:[],rows:[],stamp:null};save();$('dlg').close();render();} };
+  if($('sclear')) $('sclear').onclick=()=>{ if(confirm('Remove all imported data and pull marks from this device?')){state={cap:state.cap,boxMeta:state.boxMeta,pulled:{},manual:[],moves:[],dismissed:{},rows:[],stamp:null};save();$('dlg').close();render();} };
   $('dlg').showModal();
 }
 
@@ -816,6 +828,61 @@ function openDelete(id){
   };
   if(!$('dlg').open) $('dlg').showModal();
 }
+/* ---------- duplicate products: the same item # on hand more than once ---------- */
+const dupState={f:'todo',q:'',show:30};
+let dupBy=null;
+function dupIndex(){ const m=new Map(); for(const r of effRows()){ if(isPulled(r)||!r.item) continue; if(!m.has(r.item)) m.set(r.item,[]); m.get(r.item).push(r); } return m; }
+function dupPill(r){
+  if(!dupBy||isPulled(r)||!r.item) return '';
+  const o=dupBy.get(r.item)||[]; if(o.length<2) return '';
+  const el=[...new Set(o.filter(x=>x.box!==r.box).map(x=>x.box))], here=o.filter(x=>x.box===r.box).length-1;
+  const bits=[]; if(el.length) bits.push('also in '+el.slice(0,3).map(esc).join(', ')+(el.length>3?' +'+(el.length-3):'')); if(here>0) bits.push(here+' more here');
+  return `<span class="pill dupill">${bits.join(' &middot; ')}</span> `;
+}
+function dupGroups(){
+  const out=[];
+  dupIndex().forEach((rows,item)=>{
+    if(rows.length<2) return;
+    const boxes=new Map(); rows.forEach(r=>{ if(!boxes.has(r.box)) boxes.set(r.box,[]); boxes.get(r.box).push(r); });
+    const seen=new Set(); let sameJob=false; rows.forEach(r=>{ if(!r.job) return; if(seen.has(r.job)) sameJob=true; seen.add(r.job); });
+    const dm=state.dismissed[item];
+    out.push({item,rows,boxes,sameJob,cross:boxes.size>1,reviewed:!!dm&&rows.length<=dm.n});
+  });
+  out.sort((a,b)=>b.boxes.size-a.boxes.size||b.rows.length-a.rows.length);
+  return out;
+}
+function dupRemove(rows){ const at=Date.now(); rows.forEach(r=>{ state.pulled[r.k]={from:r.box,to:'',at}; opPull(r.k); }); save(); render(); }
+function openDupes(){
+  curBox=null; $('dbody').onchange=null;
+  const all=dupGroups(), f=dupState.f, q=dupState.q.trim();
+  const pass={todo:g=>!g.reviewed,cross:g=>g.cross&&!g.reviewed,same:g=>!g.cross&&!g.reviewed,job:g=>g.sameJob&&!g.reviewed,reviewed:g=>g.reviewed,all:()=>true}[f];
+  const list=all.filter(g=>pass(g)&&(!q||g.item.includes(q)));
+  const shown=list.slice(0,dupState.show);
+  $('dt').textContent='Duplicate products';
+  $('dctl').innerHTML=`<select id="dupf"><option value="todo">To review</option><option value="cross">In different boxes</option><option value="same">Several in one box</option><option value="job">Same job entered twice</option><option value="reviewed">Marked reviewed</option><option value="all">Everything</option></select> <input id="dupq" placeholder="Item #" style="width:120px" value="${esc(dupState.q)}">`;
+  $('dupf').value=f;
+  $('dupf').onchange=e=>{ dupState.f=e.target.value; dupState.show=30; openDupes(); };
+  $('dupq').onchange=e=>{ dupState.q=e.target.value; dupState.show=30; openDupes(); };
+  const row=r=>`<div class="dupe"><span>job ${esc(r.job||'-')} &middot; ${fdate(r.ts)}${r.manual?' &middot; manual':''}${r.from?' &middot; moved in':''}</span><button data-rm="${esc(r.k)}">Remove from ${esc(r.box)}</button></div>`;
+  const grp=g=>`<div class="dup"><div class="dup-h"><b>${esc(g.item)}</b><span class="sub">${g.rows.length} samples in ${g.boxes.size} box${g.boxes.size>1?'es':''}${g.sameJob?' &middot; same job repeated':''}</span><span style="flex:1"></span>${g.reviewed?`<button data-undis="${esc(g.item)}">Bring back</button>`:`<button data-dis="${esc(g.item)}">Mark reviewed</button>`}</div>`+
+    [...g.boxes.entries()].sort((a,b)=>b[1].length-a[1].length).map(([bx,rs])=>`<div class="dupbox"><span><b>${esc(bx)}</b> <span class="sub">&middot; ${rs.length} sample${rs.length>1?'s':''}</span></span><span style="display:flex;gap:8px;flex-wrap:wrap"><button data-open="${esc(bx)}">Open box</button>${g.cross?`<button class="pri" data-keep="${esc(g.item)}|${esc(bx)}">Keep only in ${esc(bx)}</button>`:''}</span></div>`+rs.map(row).join('')).join('')+`</div>`;
+  $('dbody').innerHTML=`<p class="sub">${list.length} product${list.length===1?'':'s'} here. Nothing changes until you press a button, and every removal asks first. “Keep only in…” removes the product from the <b>other</b> boxes. A removed sample can be brought back by unticking <b>Pulled</b> in its box.</p>`+
+    (shown.map(grp).join('')||'<div class="empty">Nothing to review here.</div>')+
+    (list.length>shown.length?`<p style="text-align:center"><button data-more="1">Show more (${list.length-shown.length} left)</button></p>`:'');
+  $('dbody').onclick=e=>{
+    const b=e.target.closest('button'); if(!b) return;
+    const sc=$('dbody').scrollTop, re=()=>{ openDupes(); $('dbody').scrollTop=sc; };
+    if(b.dataset.more){ dupState.show+=30; re(); return; }
+    if(b.dataset.dis){ const g=all.find(x=>x.item===b.dataset.dis); const m={at:Date.now(),n:g?g.rows.length:0}; state.dismissed[b.dataset.dis]=m; save(); if(serverDismiss) op({op:'dismissDup',item:b.dataset.dis,at:m.at,n:m.n}); render(); re(); return; }
+    if(b.dataset.undis){ delete state.dismissed[b.dataset.undis]; save(); if(serverDismiss) op({op:'undismissDup',item:b.dataset.undis}); render(); re(); return; }
+    if(b.dataset.rm){ const r=effRows().find(x=>x.k===b.dataset.rm); if(r&&confirm(`Remove item ${r.item} (job ${r.job||'-'}) from ${r.box}?\n\nYou can bring it back by unticking Pulled in that box.`)){ dupRemove([r]); re(); } return; }
+    if(b.dataset.keep){ const [item,box]=b.dataset.keep.split('|'); const g=dupGroups().find(x=>x.item===item); if(!g) return;
+      const gone=g.rows.filter(r=>r.box!==box), where=[...new Set(gone.map(r=>r.box))].join(', ');
+      if(confirm(`Keep item ${item} only in ${box}?\n\nThis removes ${gone.length} sample${gone.length>1?'s':''} from: ${where}.\n\nYou can bring them back by unticking Pulled in those boxes.`)){ dupRemove(gone); re(); } }
+  };
+  if(!$('dlg').open) $('dlg').showModal();
+}
+document.addEventListener('click',e=>{ if(e.target.closest('[data-dupes]')) openDupes(); });
 /* ---------- help / FAQ (English + simple Spanish) ---------- */
 const HELP={
  en:{title:'Help / FAQ',items:[
@@ -829,6 +896,7 @@ const HELP={
   ['How do I combine (merge) boxes?','Tap <b>Merge / renumber boxes</b> (or <b>Merge…</b> on a suggestion). Tick the boxes to combine, type the box number the finished box should have (one of them or a brand-new number), check the capacity, then tap Apply. Move the samples physically too. Made a mistake? Settings → Recent box changes → Undo.'],
   ['How do I change a box number?','Open the box and tap <b>Change number</b>, type the new number and Apply. All its samples move with it. Typing the number of another existing box merges them. You can undo it in Settings.'],
   ['How do I delete a box?','Open the box and tap <b>Delete box</b>. The app asks “Are you sure?” and tells you how many samples are in it. Tap <b>Yes, delete</b> to confirm. The box disappears for everyone. Changed your mind? Settings → Recent box changes → Undo. To keep the samples, merge the box into another one instead.'],
+  ['How do I find and clean up duplicate products?','Tap <b>Review duplicates</b> (or the “duplicate products” number at the top). Each entry is one product that is on hand more than once. For each one you can: <b>Keep only in [box]</b> (removes it from the other boxes, after asking), <b>Remove</b> one sample, <b>Open box</b>, or <b>Mark reviewed</b> if you want to keep them all (it comes back only if another copy is added). Use the filter to see just products in different boxes, several in one box, or the same job entered twice. Inside any box, a gold “also in Box X” tag shows its duplicates. Nothing changes until you press a button.'],
   ['How do I update the data from the Google Sheet?','Copy the 4 columns (Timestamp, Job_Number, Inventory_Item, Sample Location) into an Excel file, then drag it onto the dotted box at the top (or tap it to choose the file). The app only reads those columns and ignores everything else. It asks you to confirm because it <b>replaces the data for everyone</b>. Pulls and manual entries are kept.'],
   ['Some entries are missing','Only locations that look like a box (Box 12, Bx12, Calchef 2…) are counted. Things like “Given to Johana” or “1st pass” are ignored. See the line “Location entries ignored” at the bottom. Typing “Box 12” the same way every time works best.'],
   ['What does “Offline – changes waiting” mean?','Your phone or PC lost the connection. Your changes are saved on the device and will send automatically when it is back. Keep the page open until it says “synced”.'],
@@ -846,6 +914,7 @@ const HELP={
   ['¿Cómo junto (combino) cajas?','Toca <b>Merge / renumber boxes</b> (o <b>Merge…</b> en una sugerencia). Marca las cajas, escribe el número que tendrá la caja final (uno de ellos o uno nuevo), revisa la capacidad y toca Apply. Mueve también las muestras físicamente. ¿Error? Settings → Recent box changes → Undo.'],
   ['¿Cómo cambio el número de una caja?','Abre la caja y toca <b>Change number</b>, escribe el número nuevo y Apply. Todas sus muestras se van con ella. Si escribes el número de otra caja, se juntan. Se puede deshacer en Settings.'],
   ['¿Cómo borro una caja?','Abre la caja y toca <b>Delete box</b>. La app pregunta “¿Estás seguro?” y dice cuántas muestras tiene. Toca <b>Yes, delete</b> para confirmar. La caja desaparece para todos. ¿Te arrepentiste? Settings → Recent box changes → Undo. Para conservar las muestras, junta la caja con otra.'],
+  ['¿Cómo encuentro y limpio productos duplicados?','Toca <b>Review duplicates</b> (o el número “duplicate products” arriba). Cada entrada es un producto que está más de una vez. Puedes: <b>Keep only in [caja]</b> (lo quita de las otras cajas, después de preguntar), <b>Remove</b> una muestra, <b>Open box</b>, o <b>Mark reviewed</b> si quieres dejarlos todos. El filtro muestra solo los de cajas distintas, varios en una caja, o el mismo trabajo dos veces. Dentro de una caja, la etiqueta dorada “also in Box X” muestra sus duplicados. Nada cambia hasta que toques un botón.'],
   ['¿Cómo actualizo los datos?','Copia las 4 columnas (Timestamp, Job_Number, Inventory_Item, Sample Location) a un archivo de Excel y arrástralo al cuadro punteado de arriba. La app solo lee esas columnas. Te pide confirmar porque <b>cambia los datos para todos</b>. Los Pulled y las muestras manuales se conservan.'],
   ['Faltan algunas entradas','Solo se cuentan ubicaciones que parecen una caja (Box 12, Bx12, Calchef 2…). “Given to Johana” o “1st pass” se ignoran (ver abajo “Location entries ignored”). Escribe “Box 12” siempre igual.'],
   ['¿Qué significa “Offline – changes waiting”?','Se perdió la conexión. Tus cambios están guardados y se envían solos cuando regrese. Deja la página abierta hasta que diga “synced”.'],
@@ -874,6 +943,7 @@ const IC={
   help:'<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.6 2.2c-.8.5-1.1 1-1.1 1.8M12 17h.01"/>',
   stylus:'<path d="M4 20l1-4L16.5 4.5a2 2 0 0 1 3 3L8 19l-4 1z"/><path d="M14 7l3 3"/>',
   knot:'<circle cx="9" cy="12" r="5"/><circle cx="15" cy="12" r="5"/>',
+  dup:'<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
   gear:'<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/>'
 };
 const setIc=(el,name)=>{ el.innerHTML='<svg class="ic" viewBox="0 0 24 24">'+IC[name]+'</svg>'; };
@@ -913,6 +983,7 @@ $('dclose').onclick=()=>{curBox=null;$('dlg').close();};
 $('settings').onclick=openSettings;
 $('addBtn').onclick=()=>openAdd('');
 $('mergeBtn').onclick=()=>openMerge([],'');
+$('dupBtn').onclick=()=>openDupes();
 render();
 showSync();
 poll();
