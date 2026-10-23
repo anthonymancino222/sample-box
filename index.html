@@ -627,6 +627,8 @@ function suggestions(list){
 const $=id=>document.getElementById(id);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fdate=ts=>ts?new Date(ts).toLocaleDateString(undefined,{year:'2-digit',month:'short',day:'numeric'}):'—';
+const NOORIG='~not-original';
+const dateCell=r=>r.job===NOORIG?'<span class="pill">Not original date</span>':fdate(r.ts);
 function fillClass(p){return p>=0.9?'f-hot':p<=0.5?'f-low':'f-ok';}
 function render(){
   const has=state.rows.length>0||state.manual.length>0;
@@ -717,7 +719,7 @@ function openBox(id){
     return dupPill(r)+(r.from?`<span class="pill">moved in from ${esc(r.from)}</span> `:'')+(r.manual?'<span class="pill">manual</span> ':'')+`<button class="danger sm" data-del1="${esc(r.k)}">Delete</button>`;
   };
   $('dbody').innerHTML=`<div class="bsticky"><div class="bsearch"><input id="bsearch" type="search" placeholder="Search this box by product # or note" autocomplete="off" value="${esc(boxQ)}"><span class="sub" id="bcount"></span><select id="bsort" title="Sort this box"><option value="num-asc">Product # low → high</option><option value="num-desc">Product # high → low</option><option value="date-old">Date old → new</option><option value="date-new">Date new → old</option></select>${delCount?`<button id="brefresh" class="sm" title="${boxHideDel?'Show the deleted products again (so you can Restore them)':'Hide the products you deleted, so only the remaining ones show'}">${boxHideDel?'Show '+delCount+' deleted':'Refresh · hide '+delCount+' deleted'}</button><button id="bcommit" class="sm danger" title="Make these deletions final: they will not show in this box again">Commit ${delCount} deleted</button>`:''}</div><div id="bulk" class="bulk" hidden><span id="bulkn"></span><button class="danger" id="bulkdel">Delete selected</button><button id="bulkclr">Clear selection</button></div></div><table><thead><tr><th><input type="checkbox" id="selall" title="Select all shown"></th><th>Pulled</th><th>Item #</th><th>Date</th><th>Location / note</th><th>Note</th></tr></thead><tbody>`+
-    rows.map(r=>`<tr class="${isPulled(r)?'pulled':''}" data-item="${esc(r.item||'')}" data-note="${esc((noteOf(r)||{text:''}).text)}"><td class="sel"><input type="checkbox" data-sel="${esc(r.k)}" ${boxSel.has(r.k)?'checked':''} ${isPulled(r)?'disabled':''}></td><td><input type="checkbox" data-pull="${esc(r.k)}" ${isPulled(r)?'checked':''}></td><td>${esc(r.item||'—')}</td><td>${fdate(r.ts)}</td><td class="np">${note(r)}</td><td class="np nt">${noteCell(r)}</td></tr>`).join('')+`</tbody></table>
+    rows.map(r=>`<tr class="${isPulled(r)?'pulled':''}" data-item="${esc(r.item||'')}" data-note="${esc((noteOf(r)||{text:''}).text)}"><td class="sel"><input type="checkbox" data-sel="${esc(r.k)}" ${boxSel.has(r.k)?'checked':''} ${isPulled(r)?'disabled':''}></td><td><input type="checkbox" data-pull="${esc(r.k)}" ${isPulled(r)?'checked':''}></td><td>${esc(r.item||'—')}</td><td>${dateCell(r)}</td><td class="np">${note(r)}</td><td class="np nt">${noteCell(r)}</td></tr>`).join('')+`</tbody></table>
     <div class="sub" style="margin-top:8px">Tick “Pulled” when a sample leaves this box, then say where it is now (an existing box, a new box you type, or leave blank if it's gone). “Mark as full” sets this box's capacity to what it holds right now.</div>`;
   if(!$('dlg').open) $('dlg').showModal();
   if($('brefresh')) $('brefresh').onclick=()=>{ boxHideDel=!boxHideDel; openBox(id); };
@@ -770,17 +772,19 @@ function openAdd(preBox){
   const today=new Date().toISOString().slice(0,10);
   $('dbody').innerHTML=`<p><label>Box<br><input id="abox" list="boxlist" value="${esc(preBox||'')}" placeholder="pick a box or type a new one, e.g. Box 42"></label></p>
     <p><label>Item # (Inventory_Item)<br><input id="aitem" inputmode="numeric"></label></p>
-    <p><label>Date<br><input id="adate" type="date" value="${today}"></label></p>
+    <p><label>Date added to the box<br><input id="adate" type="date" value="${today}"></label><br>
+      <label style="display:inline-flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="anoorig"> <span>Not the original date <span class="sub">(don't know when it was first put in this box)</span></span></label></p>
     <p id="amsg" class="sub"></p>
     <p><button class="pri" id="asave">Add to box</button></p>
-    <div class="sub">Entries added here are kept on this device and survive re-importing the sheet. If the sheet later contains the same product in that box, the manual copy is dropped so nothing is counted twice.</div>`;
+    <div class="sub">Entries added here are shared with everyone and stay when you re-import the sheet. If you later add the same product to the Google Sheet, delete the manual copy here so it is not counted twice.</div>`;
   if(!$('dlg').open) $('dlg').showModal();
+  $('anoorig').onchange=()=>{ $('adate').disabled=$('anoorig').checked; };
   $('asave').onclick=()=>{
     const n=normLoc($('abox').value), item=$('aitem').value.trim(), job='', msg=$('amsg');
     if(!n.box){ msg.textContent='Box must look like “Box 12” or “Calchef 2”.'; return; }
     if(!item){ msg.textContent='Enter the product # (item #).'; return; }
-    const dv=$('adate').value, d=(!dv||dv===new Date().toISOString().slice(0,10))?Date.now():new Date(dv+'T12:00:00').getTime();
-    state.manual.push({k:'m'+Date.now()+Math.random().toString(36).slice(2,6),box:n.box,series:n.series||'Box',ts:d,job,item,manual:true});
+    const dv=$('adate').value, no=$('anoorig').checked, d=(no||!dv||dv===new Date().toISOString().slice(0,10))?Date.now():new Date(dv+'T12:00:00').getTime();
+    state.manual.push({k:'m'+Date.now()+Math.random().toString(36).slice(2,6),box:n.box,series:n.series||'Box',ts:d,job:no?NOORIG:job,item,manual:true});
     save(); op({op:'addManual',entry:state.manual[state.manual.length-1]}); render();
     $('aitem').value=''; msg.textContent=`Added to ${n.box}. Add another, or close.`; $('aitem').focus();
   };
@@ -936,7 +940,7 @@ function exportDupes(list){
   list.forEach(g=>{
     const bx=[...g.boxes.entries()].sort((a,b)=>b[1].length-a[1].length), st=g.reviewed?'Reviewed':'To review';
     sum.push({'Product #':String(g.item),'Samples on hand':g.rows.length,'Number of boxes':g.boxes.size,'Boxes (samples)':bx.map(([b,r])=>b+' ('+r.length+')').join(', '),'Status':st,'Decision (box to keep it in)':''});
-    bx.forEach(([b,rs])=>rs.slice().sort((x,y)=>(y.ts||0)-(x.ts||0)).forEach(r=>ent.push({'Product #':String(g.item),'Box':b,'Location':locOf(b),'Samples of this product in this box':rs.length,'Date added':r.ts?new Date(r.ts):'','Status':st,'Note':(noteOf(r)||{text:''}).text,'Keep or remove':''}))) ;
+    bx.forEach(([b,rs])=>rs.slice().sort((x,y)=>(y.ts||0)-(x.ts||0)).forEach(r=>ent.push({'Product #':String(g.item),'Box':b,'Location':locOf(b),'Samples of this product in this box':rs.length,'Date added':r.job===NOORIG?'Not original date':(r.ts?new Date(r.ts):''),'Status':st,'Note':(noteOf(r)||{text:''}).text,'Keep or remove':''}))) ;
   });
   const wb=XLSX.utils.book_new();
   const w1=XLSX.utils.json_to_sheet(sum); w1['!cols']=[{wch:12},{wch:16},{wch:16},{wch:70},{wch:12},{wch:28}];
@@ -956,7 +960,7 @@ function exportDupes(list){
   $('dupx').title='Download the '+list.length+' product'+(list.length===1?'':'s')+' in this list as an Excel file';
   $('dupf').onchange=e=>{ dupState.f=e.target.value; dupState.show=30; openDupes(); };
   $('dupq').onchange=e=>{ dupState.q=e.target.value; dupState.show=30; openDupes(); };
-  const row=r=>`<div class="dupe"><span>Added ${fdate(r.ts)}${r.manual?' &middot; manual':''}${r.from?' &middot; moved in':''}${noteOf(r)?' &middot; note: '+esc(noteOf(r).text):''}</span><button data-rm="${esc(r.k)}">Remove from ${esc(r.box)}</button></div>`;
+  const row=r=>`<div class="dupe"><span>${r.job===NOORIG?'Not original date':'Added '+fdate(r.ts)}${r.manual?' &middot; manual':''}${r.from?' &middot; moved in':''}${noteOf(r)?' &middot; note: '+esc(noteOf(r).text):''}</span><button data-rm="${esc(r.k)}">Remove from ${esc(r.box)}</button></div>`;
   const grp=g=>`<div class="dup"><div class="dup-h"><b>${esc(g.item)}</b><span class="sub">${g.rows.length} samples in ${g.boxes.size} box${g.boxes.size>1?'es':''}</span><span style="flex:1"></span>${g.reviewed?`<button data-undis="${esc(g.item)}">Bring back</button>`:`<button data-dis="${esc(g.item)}">Mark reviewed</button>`}</div>`+
     [...g.boxes.entries()].sort((a,b)=>b[1].length-a[1].length).map(([bx,rs])=>`<div class="dupbox"><span><b>${esc(bx)}</b> <span class="sub">&middot; ${rs.length} sample${rs.length>1?'s':''}</span></span><span style="display:flex;gap:8px;flex-wrap:wrap"><button data-open="${esc(bx)}">Open box</button>${g.cross?`<button class="pri" data-keep="${esc(g.item)}|${esc(bx)}">Keep only in ${esc(bx)}</button>`:''}</span></div>`+rs.map(row).join('')).join('')+`</div>`;
   $('dbody').innerHTML=`<p class="sub">${list.length} product${list.length===1?'':'s'} here. Nothing changes until you press a button, and every removal asks first. “Keep only in…” removes the product from the <b>other</b> boxes. A removed sample can be brought back by unticking <b>Pulled</b> in its box.</p>`+
@@ -1074,7 +1078,7 @@ const HELP={
   ['A sample leaves a box (CSR / sales request)','Open the box, tick <b>Pulled</b> on that sample, then in “Now at” pick the box it went to, or type where it is now (for example “Box 12”). If it is gone for good, leave it blank. The count in both boxes updates for everyone.'],
   ['I tapped Pulled by mistake','Untick it. The sample goes back into the box.'],
   ['How do I mark a box as full?','Open the box and tap <b>Mark as full</b>. The app remembers that this box is full at today’s count, so boxes with bigger samples can be “full” at fewer samples. Tap <b>Unmark full</b> to undo.'],
-  ['How do I add a sample by hand?','Tap <b>+ Add sample</b> (top, or inside a box). Pick or type the box, enter the product # (item #), then tap Add to box. You can add several in a row. To remove one you added by mistake, open the box and tap the ✕ next to it.'],
+  ['How do I add a sample by hand?','Tap <b>+ Add sample</b> (top, or inside a box). Pick or type the box, enter the product # (item #), then tap Add to box. You can add several in a row. To remove one you added by mistake, open the box and tap the ✕ next to it. If you do not know when it was first put in the box, tick <b>Not the original date</b>: the list then shows “Not original date” instead of a date.'],
   ['How do I combine (merge) boxes?','Tap <b>Merge / renumber boxes</b> (or <b>Merge…</b> on a suggestion). Tick the boxes to combine, type the box number the finished box should have (one of them or a brand-new number), check the capacity, then tap Apply. Move the samples physically too. Made a mistake? Settings → Recent box changes → Undo.'],
   ['How do I change a box number?','Open the box and tap <b>Change number</b>, type the new number and Apply. All its samples move with it. Typing the number of another existing box merges them. You can undo it in Settings.'],
   ['How do I undo my last change?','Tap <b>Undo</b> (top right, or in any box window) or press <b>Ctrl+Z</b>. It reverses your last change: a delete, pull, merge, note, mark full, and so on. Tap again to go back further (up to 30 steps while the page stays open). It only undoes <b>your own</b> changes on this device, and it cannot undo importing a new sheet. Changed your mind about an undo? Tap <b>Redo</b> (or Ctrl+Y) to put it back. Starting a new change clears the redo history.'],
@@ -1095,7 +1099,7 @@ const HELP={
   ['Sacan una muestra de una caja','Abre la caja, marca <b>Pulled</b> en esa muestra y en “Now at” elige la caja a donde fue, o escribe dónde está (por ejemplo “Box 12”). Si ya no existe, déjalo vacío. Los conteos se actualizan para todos.'],
   ['Marqué Pulled por error','Quita la marca. La muestra vuelve a la caja.'],
   ['¿Cómo marco una caja como llena?','Abre la caja y toca <b>Mark as full</b>. La app recuerda que esa caja está llena con el número de hoy (las cajas con muestras grandes se llenan con menos). Toca <b>Unmark full</b> para deshacer.'],
-  ['¿Cómo agrego una muestra a mano?','Toca <b>+ Add sample</b>. Elige o escribe la caja, el número de producto (artículo) y toca Add to box. Para borrar una que agregaste por error, abre la caja y toca la ✕.'],
+  ['¿Cómo agrego una muestra a mano?','Toca <b>+ Add sample</b>. Elige o escribe la caja, el número de producto (artículo) y toca Add to box. Para borrar una que agregaste por error, abre la caja y toca la ✕. Si no sabes cuándo se puso por primera vez en la caja, marca <b>Not the original date</b>: la lista mostrará “Not original date” en vez de una fecha.'],
   ['¿Cómo junto (combino) cajas?','Toca <b>Merge / renumber boxes</b> (o <b>Merge…</b> en una sugerencia). Marca las cajas, escribe el número que tendrá la caja final (uno de ellos o uno nuevo), revisa la capacidad y toca Apply. Mueve también las muestras físicamente. ¿Error? Settings → Recent box changes → Undo.'],
   ['¿Cómo cambio el número de una caja?','Abre la caja y toca <b>Change number</b>, escribe el número nuevo y Apply. Todas sus muestras se van con ella. Si escribes el número de otra caja, se juntan. Se puede deshacer en Settings.'],
   ['¿Cómo deshago mi último cambio?','Toca <b>Undo</b> (arriba a la derecha, o en la ventana de cualquier caja) o presiona <b>Ctrl+Z</b>. Revierte tu último cambio: borrar, pull, juntar cajas, nota, marcar llena, etc. Toca otra vez para retroceder más (hasta 30 pasos mientras la página siga abierta). Solo deshace <b>tus propios</b> cambios en este dispositivo y no puede deshacer la importación de una hoja nueva. ¿Te arrepentiste de deshacer? Toca <b>Redo</b> (o Ctrl+Y) para volver a hacerlo. Un cambio nuevo borra el historial de rehacer.'],
