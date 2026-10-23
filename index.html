@@ -350,6 +350,8 @@ td.sel,th:first-child{width:34px}
 button:disabled{opacity:.4;cursor:default;box-shadow:none}
 .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(14px);z-index:100;background:var(--ink);color:var(--bg);padding:11px 20px;border-radius:99px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .3s,transform .3s;max-width:92vw;text-align:center}
 .toast.show{opacity:1;transform:translateX(-50%)}
+.ed{padding:2px 8px;border-radius:99px;margin-left:6px}
+.dtinp{min-width:150px}
 </style>
 </head>
 <body>
@@ -414,7 +416,7 @@ button:disabled{opacity:.4;cursor:default;box-shadow:none}
 "use strict";
 const LS = 'sampleBoxTracker.v1';
 let state = load();           // {cap:100, boxMeta:{id:{loc,cap}}, pulled:{rowKey:1}, rows:[...], stamp}
-function load(){ try{ const s=JSON.parse(localStorage.getItem(LS)); if(s&&s.rows){ s.manual=s.manual||[]; s.moves=s.moves||[]; s.dismissed=s.dismissed||{}; s.notes=s.notes||{}; return s; } }catch(e){} return {cap:100,boxMeta:{},pulled:{},manual:[],moves:[],dismissed:{},notes:{},rows:[],stamp:null}; }
+function load(){ try{ const s=JSON.parse(localStorage.getItem(LS)); if(s&&s.rows){ s.manual=s.manual||[]; s.moves=s.moves||[]; s.dismissed=s.dismissed||{}; s.notes=s.notes||{}; s.dates=s.dates||{}; return s; } }catch(e){} return {cap:100,boxMeta:{},pulled:{},manual:[],moves:[],dismissed:{},notes:{},dates:{},rows:[],stamp:null}; }
 function save(){ try{ localStorage.setItem(LS, JSON.stringify(state)); }catch(e){}
   if(typeof undoReady!=='undefined'&&undoReady&&!undoing&&!commitT) commitT=setTimeout(undoCommit,0); }
 
@@ -462,6 +464,8 @@ async function poll(force){
         const localD=state.dismissed||{}; state.dismissed=Object.assign({},s.dismissed);
         if(!serverDismiss){ serverDismiss=true; for(const k in localD) if(!s.dismissed[k]){ state.dismissed[k]=localD[k]; op({op:'dismissDup',item:k,at:localD[k].at,n:localD[k].n}); } }
       }
+      if('dates' in s){ const ld=state.dates||{}; state.dates=Object.assign({},s.dates);
+        if(!serverDates){ serverDates=true; for(const k in ld) if(!s.dates[k]){ state.dates[k]=ld[k]; op({op:'setDate',k,ts:ld[k].ts,no:ld[k].no?1:0}); } } }
       if('notes' in s){ const ln=state.notes||{}; state.notes=Object.assign({},s.notes);
         if(!serverNotes){ serverNotes=true; for(const k in ln) if(!s.notes[k]){ state.notes[k]=ln[k]; op({op:'setNote',k,text:ln[k].text,at:ln[k].at}); } } }
       state.v=j.v; save(); undoSync();
@@ -479,7 +483,7 @@ function showSync(){
   el.textContent = syncErr ? `⚠ Offline – ${outbox.length} change${outbox.length==1?'':'s'} waiting` :
     outbox.length ? 'Saving…' : lastSync ? 'Shared · synced '+new Date(lastSync).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}) : 'Connecting…';
 }
-let curBox=null, serverDismiss=false, serverNotes=false, boxQ='', boxQBox=null;
+let curBox=null, serverDismiss=false, serverNotes=false, serverDates=false, boxQ='', boxQBox=null;
 const boxSel=new Set(); let boxHideDel=false;
 let boxSort=(()=>{ try{ return localStorage.getItem('sampleBoxTracker.boxSort')||'date-new'; }catch(e){ return 'date-new'; } })();
 function numCmp(x,y,dir){ if(!x&&!y) return 0; if(!x) return 1; if(!y) return -1; const nx=Number(x), ny=Number(y); if(!isNaN(nx)&&!isNaN(ny)) return (nx-ny)*dir; return String(x).localeCompare(String(y),undefined,{numeric:true})*dir; }
@@ -586,7 +590,14 @@ function resolveBox(box,ts,minAt){
   return b;
 }
 const seriesOf=b=>normLoc(b).series||'Box';
-function disp(r){ const b=resolveBox(r.box,r.ts); return b===r.box?r:Object.assign({},r,{box:b,series:seriesOf(b)}); }
+function disp(r){
+  const b=resolveBox(r.box,r.ts), o=state.dates[r.k];
+  if(b===r.box&&!o) return r;
+  const x=Object.assign({},r);
+  if(b!==r.box){ x.box=b; x.series=seriesOf(b); }
+  if(o){ x.ts=o.ts; x.job=o.no?NOORIG:(r.job===NOORIG?'':r.job); }
+  return x;
+}
 function effRows(){
   const out=[];
   const walk=(r,depth)=>{
@@ -628,6 +639,8 @@ const $=id=>document.getElementById(id);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fdate=ts=>ts?new Date(ts).toLocaleDateString(undefined,{year:'2-digit',month:'short',day:'numeric'}):'—';
 const NOORIG='~not-original';
+const ymd=ts=>{ const d=new Date(ts); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
+function setDateOverride(k,o){ if(o){ state.dates[k]=o; if(serverDates) op({op:'setDate',k,ts:o.ts,no:o.no?1:0}); } else { delete state.dates[k]; if(serverDates) op({op:'delDate',k}); } save(); }
 const dateCell=r=>r.job===NOORIG?'<span class="pill">Not original date</span>':fdate(r.ts);
 function fillClass(p){return p>=0.9?'f-hot':p<=0.5?'f-low':'f-ok';}
 function render(){
@@ -719,7 +732,7 @@ function openBox(id){
     return dupPill(r)+(r.from?`<span class="pill">moved in from ${esc(r.from)}</span> `:'')+(r.manual?'<span class="pill">manual</span> ':'')+`<button class="danger sm" data-del1="${esc(r.k)}">Delete</button>`;
   };
   $('dbody').innerHTML=`<div class="bsticky"><div class="bsearch"><input id="bsearch" type="search" placeholder="Search this box by product # or note" autocomplete="off" value="${esc(boxQ)}"><span class="sub" id="bcount"></span><select id="bsort" title="Sort this box"><option value="num-asc">Product # low → high</option><option value="num-desc">Product # high → low</option><option value="date-old">Date old → new</option><option value="date-new">Date new → old</option></select>${delCount?`<button id="brefresh" class="sm" title="${boxHideDel?'Show the deleted products again (so you can Restore them)':'Hide the products you deleted, so only the remaining ones show'}">${boxHideDel?'Show '+delCount+' deleted':'Refresh · hide '+delCount+' deleted'}</button><button id="bcommit" class="sm danger" title="Make these deletions final: they will not show in this box again">Commit ${delCount} deleted</button>`:''}</div><div id="bulk" class="bulk" hidden><span id="bulkn"></span><button class="danger" id="bulkdel">Delete selected</button><button id="bulkclr">Clear selection</button></div></div><table><thead><tr><th><input type="checkbox" id="selall" title="Select all shown"></th><th>Pulled</th><th>Item #</th><th>Date</th><th>Location / note</th><th>Note</th></tr></thead><tbody>`+
-    rows.map(r=>`<tr class="${isPulled(r)?'pulled':''}" data-item="${esc(r.item||'')}" data-note="${esc((noteOf(r)||{text:''}).text)}"><td class="sel"><input type="checkbox" data-sel="${esc(r.k)}" ${boxSel.has(r.k)?'checked':''} ${isPulled(r)?'disabled':''}></td><td><input type="checkbox" data-pull="${esc(r.k)}" ${isPulled(r)?'checked':''}></td><td>${esc(r.item||'—')}</td><td>${dateCell(r)}</td><td class="np">${note(r)}</td><td class="np nt">${noteCell(r)}</td></tr>`).join('')+`</tbody></table>
+    rows.map(r=>`<tr class="${isPulled(r)?'pulled':''}" data-item="${esc(r.item||'')}" data-note="${esc((noteOf(r)||{text:''}).text)}"><td class="sel"><input type="checkbox" data-sel="${esc(r.k)}" ${boxSel.has(r.k)?'checked':''} ${isPulled(r)?'disabled':''}></td><td><input type="checkbox" data-pull="${esc(r.k)}" ${isPulled(r)?'checked':''}></td><td>${esc(r.item||'—')}</td><td class="dt">${dateCell(r)} <button class="sm ed" data-dateedit="${esc(nkey(r))}" title="Edit this date">✎</button></td><td class="np">${note(r)}</td><td class="np nt">${noteCell(r)}</td></tr>`).join('')+`</tbody></table>
     <div class="sub" style="margin-top:8px">Tick “Pulled” when a sample leaves this box, then say where it is now (an existing box, a new box you type, or leave blank if it's gone). “Mark as full” sets this box's capacity to what it holds right now.</div>`;
   if(!$('dlg').open) $('dlg').showModal();
   if($('brefresh')) $('brefresh').onclick=()=>{ boxHideDel=!boxHideDel; openBox(id); };
@@ -758,6 +771,13 @@ These products are removed for good: they will not show in this box again and ca
 
 They disappear for everyone. You can bring each one back with Restore.`)){ const at=Date.now(); ks.forEach(k=>{ state.pulled[k]={from:id,to:DELD,at}; opPull(k); }); boxSel.clear(); save(); render(); openBox(id); } return; }
     if(b.id==='bulkclr'){ boxSel.clear(); document.querySelectorAll('#dbody [data-sel]').forEach(c=>c.checked=false); updateBulk(); return; }
+    if(b.dataset.dateedit){ const k=b.dataset.dateedit, td=b.closest('td'), o=state.dates[k], r=rowsAll.find(x=>nkey(x)===k), cur=r&&r.ts?ymd(r.ts):'';
+      td.innerHTML=`<input type="date" class="dtinp" value="${cur}" ${o&&o.no?'disabled':''}><label class="sub" style="display:flex;gap:6px;align-items:center;margin:6px 0"><input type="checkbox" class="dtno" ${o&&o.no?'checked':''}> Not original date</label><span class="noteact"><button class="sm pri" data-datesave="${esc(k)}">Save</button><button class="sm" data-notecancel="1">Cancel</button>${o?`<button class="sm" data-datereset="${esc(k)}" title="Go back to the date from the sheet">Reset</button>`:''}</span>`;
+      td.querySelector('.dtno').onchange=e=>{ td.querySelector('.dtinp').disabled=e.target.checked; }; return; }
+    if(b.dataset.datesave){ const k=b.dataset.datesave, td=b.closest('td'), no=td.querySelector('.dtno').checked, dv=td.querySelector('.dtinp').value, r=rowsAll.find(x=>nkey(x)===k); let ts;
+      if(no) ts=(r&&r.ts)||Date.now(); else if(!dv){ toast('Pick a date first, or tick Not original date'); return; } else ts=(dv===ymd(Date.now()))?Date.now():new Date(dv+'T12:00:00').getTime();
+      setDateOverride(k,{ts,no}); render(); openBox(id); return; }
+    if(b.dataset.datereset){ setDateOverride(b.dataset.datereset,null); render(); openBox(id); return; }
     const k1=b.dataset.del1, kr=b.dataset.restore;
     if(k1){ const r=rows.find(x=>x.k===k1); if(r&&confirm(`Delete product ${r.item||'(no number)'} from ${id}?
 
@@ -808,7 +828,7 @@ function openSettings(){
 They are removed for good and will not show again. (Undo still works until you close or reload the page.)`)){ applyCommit(ks); render(); openSettings(); } return; }
     const g=d.undo; if(g&&confirm('Undo this box change?')){ undoMerge(g); openSettings(); } };
   $('scap').onchange=e=>{const n=parseInt(e.target.value,10); if(n>0){state.cap=n;save();op({op:'setCap',cap:n});render();}};
-  if($('sclear')) $('sclear').onclick=()=>{ if(confirm('Remove all imported data and pull marks from this device?')){state={cap:state.cap,boxMeta:state.boxMeta,pulled:{},manual:[],moves:[],dismissed:{},notes:{},rows:[],stamp:null};save();$('dlg').close();render();} };
+  if($('sclear')) $('sclear').onclick=()=>{ if(confirm('Remove all imported data and pull marks from this device?')){state={cap:state.cap,boxMeta:state.boxMeta,pulled:{},manual:[],moves:[],dismissed:{},notes:{},dates:{},rows:[],stamp:null};save();$('dlg').close();render();} };
   $('dlg').showModal();
 }
 
@@ -985,9 +1005,10 @@ document.addEventListener('click',e=>{ if(e.target.closest('[data-dupes]')) open
    After each action we diff those pieces against the previous snapshot; the diff is the undo entry.
    Undo restores exactly those pieces and sends the matching writes, so it syncs like any other change. */
 var undoStack=[], redoStack=[], lastSnap=null, commitT=0, undoing=false, undoReady=false;
-const UNDO_SL=['pulled','manual','boxMeta','notes','dismissed','moves'];
+const UNDO_SL=['pulled','manual','boxMeta','notes','dismissed','moves','dates'];
 function undoMaps(){
-  const o={pulled:{},manual:{},boxMeta:{},notes:{},dismissed:{},moves:{}};
+  const o={pulled:{},manual:{},boxMeta:{},notes:{},dismissed:{},moves:{},dates:{}};
+  for(const k in state.dates) o.dates[k]=JSON.stringify(state.dates[k]);
   for(const k in state.pulled) o.pulled[k]=JSON.stringify(state.pulled[k]);
   state.manual.forEach(m=>{ o.manual[m.k]=JSON.stringify(m); });
   for(const b in state.boxMeta){ const m=state.boxMeta[b]; if(m&&Object.keys(m).length) o.boxMeta[b]=JSON.stringify(m); }
@@ -1005,6 +1026,7 @@ function undoLabel(before,now){
   let add=0,rm=0; for(const k in (before.manual||{})){ if(now.manual[k]!==undefined) add++; else rm++; }
   if(add) P.push('Added '+add+' sample'+(add>1?'s':'')); if(rm) P.push('Removed '+rm+' manual sample'+(rm>1?'s':''));
   for(const g in (before.moves||{})){ const a=now.moves[g]; if(a===undefined) P.push('Undid a box change'); else { const mv=JSON.parse(a); P.push(mv[0].to===DEL?'Deleted a box':mv.length>1?'Merged boxes':'Renumbered a box'); } }
+  const dd=Object.keys(before.dates||{}).length; if(dd) P.push(dd>1?'Changed '+dd+' dates':'Changed a date');
   const nn=Object.keys(before.notes||{}).length; if(nn) P.push(nn>1?'Changed '+nn+' notes':'Changed a note');
   const dm=Object.keys(before.dismissed||{}).length; if(dm) P.push('Reviewed duplicates');
   if(before.boxMeta) P.push('Changed box settings'); if('cap' in before) P.push('Changed default capacity');
@@ -1041,6 +1063,7 @@ function undoApply(u){
     for(const k in (b.pulled||{})){ const v=b.pulled[k]; if(v===null){ delete state.pulled[k]; op({op:'clearPull',k}); } else { state.pulled[k]=JSON.parse(v); opPull(k); } }
     for(const k in (b.manual||{})){ const v=b.manual[k]; state.manual=state.manual.filter(m=>m.k!==k); if(v===null) op({op:'delManual',k}); else { const e=JSON.parse(v); state.manual.push(e); op({op:'addManual',entry:e}); } }
     for(const box in (b.boxMeta||{})){ const v=b.boxMeta[box]; if(v===null) delete state.boxMeta[box]; else state.boxMeta[box]=JSON.parse(v); opMeta(box); }
+    for(const k in (b.dates||{})){ const v=b.dates[k]; if(v===null){ delete state.dates[k]; if(serverDates) op({op:'delDate',k}); } else { const d=JSON.parse(v); state.dates[k]=d; if(serverDates) op({op:'setDate',k,ts:d.ts,no:d.no?1:0}); } }
     for(const k in (b.notes||{})){ const v=b.notes[k]; if(v===null){ delete state.notes[k]; if(serverNotes) op({op:'delNote',k}); } else { const n=JSON.parse(v); state.notes[k]=n; if(serverNotes) op({op:'setNote',k,text:n.text,at:n.at}); } }
     for(const k in (b.dismissed||{})){ const v=b.dismissed[k]; if(v===null){ delete state.dismissed[k]; if(serverDismiss) op({op:'undismissDup',item:k}); } else { const d=JSON.parse(v); state.dismissed[k]=d; if(serverDismiss) op({op:'dismissDup',item:k,at:d.at,n:d.n}); } }
     for(const g in (b.moves||{})){ const v=b.moves[g]; state.moves=state.moves.filter(m=>m.g!==g); if(v===null) op({op:'delMoves',g}); else JSON.parse(v).forEach(m=>{ state.moves.push(m); op({op:'addMove',move:m}); }); }
@@ -1078,6 +1101,7 @@ const HELP={
   ['A sample leaves a box (CSR / sales request)','Open the box, tick <b>Pulled</b> on that sample, then in “Now at” pick the box it went to, or type where it is now (for example “Box 12”). If it is gone for good, leave it blank. The count in both boxes updates for everyone.'],
   ['I tapped Pulled by mistake','Untick it. The sample goes back into the box.'],
   ['How do I mark a box as full?','Open the box and tap <b>Mark as full</b>. The app remembers that this box is full at today’s count, so boxes with bigger samples can be “full” at fewer samples. Tap <b>Unmark full</b> to undo.'],
+  ['How do I change the date of a product?','Open the box and tap the small <b>✎</b> next to the product’s date. Pick the new date, or tick <b>Not original date</b> if you do not know when it was first put in the box, then tap <b>Save</b>. <b>Reset</b> goes back to the date from the sheet. The change is shared with everyone and can be undone.'],
   ['How do I add a sample by hand?','Tap <b>+ Add sample</b> (top, or inside a box). Pick or type the box, enter the product # (item #), then tap Add to box. You can add several in a row. To remove one you added by mistake, open the box and tap the ✕ next to it. If you do not know when it was first put in the box, tick <b>Not the original date</b>: the list then shows “Not original date” instead of a date.'],
   ['How do I combine (merge) boxes?','Tap <b>Merge / renumber boxes</b> (or <b>Merge…</b> on a suggestion). Tick the boxes to combine, type the box number the finished box should have (one of them or a brand-new number), check the capacity, then tap Apply. Move the samples physically too. Made a mistake? Settings → Recent box changes → Undo.'],
   ['How do I change a box number?','Open the box and tap <b>Change number</b>, type the new number and Apply. All its samples move with it. Typing the number of another existing box merges them. You can undo it in Settings.'],
@@ -1099,6 +1123,7 @@ const HELP={
   ['Sacan una muestra de una caja','Abre la caja, marca <b>Pulled</b> en esa muestra y en “Now at” elige la caja a donde fue, o escribe dónde está (por ejemplo “Box 12”). Si ya no existe, déjalo vacío. Los conteos se actualizan para todos.'],
   ['Marqué Pulled por error','Quita la marca. La muestra vuelve a la caja.'],
   ['¿Cómo marco una caja como llena?','Abre la caja y toca <b>Mark as full</b>. La app recuerda que esa caja está llena con el número de hoy (las cajas con muestras grandes se llenan con menos). Toca <b>Unmark full</b> para deshacer.'],
+  ['¿Cómo cambio la fecha de un producto?','Abre la caja y toca el pequeño <b>✎</b> junto a la fecha del producto. Elige la fecha nueva, o marca <b>Not original date</b> si no sabes cuándo se puso por primera vez en la caja, y toca <b>Save</b>. <b>Reset</b> vuelve a la fecha de la hoja. El cambio lo ve todo el mundo y se puede deshacer.'],
   ['¿Cómo agrego una muestra a mano?','Toca <b>+ Add sample</b>. Elige o escribe la caja, el número de producto (artículo) y toca Add to box. Para borrar una que agregaste por error, abre la caja y toca la ✕. Si no sabes cuándo se puso por primera vez en la caja, marca <b>Not the original date</b>: la lista mostrará “Not original date” en vez de una fecha.'],
   ['¿Cómo junto (combino) cajas?','Toca <b>Merge / renumber boxes</b> (o <b>Merge…</b> en una sugerencia). Marca las cajas, escribe el número que tendrá la caja final (uno de ellos o uno nuevo), revisa la capacidad y toca Apply. Mueve también las muestras físicamente. ¿Error? Settings → Recent box changes → Undo.'],
   ['¿Cómo cambio el número de una caja?','Abre la caja y toca <b>Change number</b>, escribe el número nuevo y Apply. Todas sus muestras se van con ella. Si escribes el número de otra caja, se juntan. Se puede deshacer en Settings.'],
