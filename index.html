@@ -348,7 +348,7 @@ td.sel,th:first-child{width:34px}
 .bsticky{position:sticky;top:-10px;z-index:6;background:var(--card);padding:16px 0 2px}
 #dbody th{top:calc(var(--stk,0px) - 10px);z-index:5}
 button:disabled{opacity:.4;cursor:default;box-shadow:none}
-.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(14px);z-index:100;background:var(--ink);color:var(--bg);padding:11px 20px;border-radius:99px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .3s,transform .3s;max-width:92vw;text-align:center}
+.toast{position:fixed;inset:auto auto 26px 50%;margin:0;border:0;overflow:visible;transform:translateX(-50%) translateY(14px);z-index:100;background:var(--ink);color:var(--bg);padding:11px 20px;border-radius:99px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .3s,transform .3s;max-width:92vw;text-align:center}
 .toast.show{opacity:1;transform:translateX(-50%)}
 .ed{padding:2px 8px;border-radius:99px;margin-left:6px}
 .dtinp{min-width:150px}
@@ -408,7 +408,7 @@ button:disabled{opacity:.4;cursor:default;box-shadow:none}
   </div>
 </div>
 
-<div id="toast" class="toast" role="status"></div>
+<div id="toast" class="toast" role="status" popover="manual"></div>
 <datalist id="boxlist"></datalist>
 <dialog id="dlg"><div class="dh"><h3 id="dt"></h3><span id="dctl"></span><button id="dundoBtn" class="sm" disabled>Undo</button><button id="dredoBtn" class="sm" disabled>Redo</button><button id="dclose">Close</button></div><div class="db" id="dbody"></div></dialog>
 
@@ -787,27 +787,48 @@ It disappears for everyone. You can bring it back with Restore.`)){ state.pulled
 
 /* ---------- add a sample by hand ---------- */
 function openAdd(preBox){
+  const fromBox=curBox;            // the box window the user was in (if any): we return there afterwards
   curBox=null;
-  $('dt').textContent='Add a sample'; $('dctl').innerHTML=''; $('dbody').onchange=null; $('dbody').onclick=null;
-  const today=new Date().toISOString().slice(0,10);
+  $('dt').textContent='Add products'; $('dctl').innerHTML=''; $('dbody').onchange=null; $('dbody').onclick=null;
   $('dbody').innerHTML=`<p><label>Box<br><input id="abox" list="boxlist" value="${esc(preBox||'')}" placeholder="pick a box or type a new one, e.g. Box 42"></label></p>
-    <p><label>Item # (Inventory_Item)<br><input id="aitem" inputmode="numeric"></label></p>
-    <p><label>Date added to the box<br><input id="adate" type="date" value="${today}"></label><br>
-      <label style="display:inline-flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="anoorig"> <span>Not the original date <span class="sub">(don't know when it was first put in this box)</span></span></label></p>
-    <p id="amsg" class="sub"></p>
-    <p><button class="pri" id="asave">Add to box</button></p>
+    <p><label>Product #s <span class="sub">(one or many: one per line, or separated by commas or spaces)</span><br>
+      <textarea id="aitem" rows="6" inputmode="numeric" placeholder="115403&#10;115404&#10;115405" style="width:100%;font-family:var(--mono);overflow-x:hidden;resize:vertical"></textarea></label>
+      <span id="acount" class="sub"></span></p>
+    <p><label>Date added to the box<br><input id="adate" type="date" value="${ymd(Date.now())}"></label><br>
+      <label style="display:inline-flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="anoorig"> <span>Not the original date <span class="sub">(don't know when they were first put in this box)</span></span></label></p>
+    <p id="amsg" class="sub" style="color:var(--danger)"></p>
+    <p style="display:flex;gap:10px;flex-wrap:wrap"><button class="pri" id="asave">Add to box</button><button id="aback">${fromBox?'Back to '+esc(fromBox):'Cancel'}</button></p>
     <div class="sub">Entries added here are shared with everyone and stay when you re-import the sheet. If you later add the same product to the Google Sheet, delete the manual copy here so it is not counted twice.</div>`;
   if(!$('dlg').open) $('dlg').showModal();
-  $('anoorig').onchange=()=>{ $('adate').disabled=$('anoorig').checked; };
-  $('asave').onclick=()=>{
-    const n=normLoc($('abox').value), item=$('aitem').value.trim(), job='', msg=$('amsg');
-    if(!n.box){ msg.textContent='Box must look like “Box 12” or “Calchef 2”.'; return; }
-    if(!item){ msg.textContent='Enter the product # (item #).'; return; }
-    const dv=$('adate').value, no=$('anoorig').checked, d=(no||!dv||dv===new Date().toISOString().slice(0,10))?Date.now():new Date(dv+'T12:00:00').getTime();
-    state.manual.push({k:'m'+Date.now()+Math.random().toString(36).slice(2,6),box:n.box,series:n.series||'Box',ts:d,job:no?NOORIG:job,item,manual:true});
-    save(); op({op:'addManual',entry:state.manual[state.manual.length-1]}); render();
-    $('aitem').value=''; msg.textContent=`Added to ${n.box}. Add another, or close.`; $('aitem').focus();
+  const parse=()=>$('aitem').value.split(/[\s,;]+/).map(s=>s.trim()).filter(Boolean);
+  const preview=()=>{
+    const toks=parse(), n=normLoc($('abox').value), el=$('acount');
+    if(!toks.length){ el.textContent=''; return; }
+    const here=n.box?(boxes().find(b=>b.id===n.box)||{rows:[]}).rows.filter(r=>!isPulled(r)):[];
+    const have=new Set(here.map(r=>r.item)), seen={}; toks.forEach(t=>{ seen[t]=(seen[t]||0)+1; });
+    const already=[...new Set(toks.filter(t=>have.has(t)))], rep=Object.keys(seen).filter(t=>seen[t]>1);
+    el.textContent=toks.length+' product'+(toks.length===1?'':'s')+' will be added'+(n.box?' to '+n.box:'')+'.'+
+      (already.length?' Already in this box: '+already.slice(0,5).join(', ')+(already.length>5?' +'+(already.length-5):'')+'.':'')+
+      (rep.length?' Entered more than once: '+rep.slice(0,5).join(', ')+'.':'');
   };
+  $('aitem').oninput=preview; $('abox').oninput=preview;
+  $('anoorig').onchange=()=>{ $('adate').disabled=$('anoorig').checked; };
+  $('aback').onclick=()=>{ if(fromBox) openBox(fromBox); else $('dlg').close(); };
+  $('asave').onclick=()=>{
+    const n=normLoc($('abox').value), toks=parse(), msg=$('amsg');
+    if(!n.box){ msg.textContent='Box must look like “Box 12” or “Calchef 2”.'; return; }
+    if(!toks.length){ msg.textContent='Enter at least one product #.'; return; }
+    if(toks.length>300){ msg.textContent='That is a lot at once ('+toks.length+'). Please add up to 300 at a time.'; return; }
+    const dv=$('adate').value, no=$('anoorig').checked, d=(no||!dv||dv===ymd(Date.now()))?Date.now():new Date(dv+'T12:00:00').getTime();
+    toks.forEach((item,i)=>{
+      const e={k:'m'+Date.now()+'-'+i+Math.random().toString(36).slice(2,6),box:n.box,series:n.series||'Box',ts:d,job:no?NOORIG:'',item,manual:true};
+      state.manual.push(e); op({op:'addManual',entry:e});
+    });
+    save(); render();
+    toast('Added '+toks.length+' product'+(toks.length===1?'':'s')+' to '+n.box);
+    openBox(n.box);                 // stay with the box the user was working on
+  };
+  $('aitem').focus();
 }
 
 /* ---------- settings ---------- */
@@ -1049,7 +1070,7 @@ function undoUI(){
   ['redoBtn','dredoBtn'].forEach(id=>{ const b=document.getElementById(id); if(b){ b.disabled=!r; b.title=rt; } });
 }
 let toastT=0;
-function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),3800); }
+function toast(msg){ const t=$('toast'); t.textContent=msg; try{ if(t.matches(':popover-open')) t.hidePopover(); t.showPopover(); }catch(e){} t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>{ t.classList.remove('show'); setTimeout(()=>{ try{ t.hidePopover(); }catch(e){} },350); },3800); }
 function undoInvert(u){
   const now=undoMaps(), inv={};
   for(const sl of UNDO_SL){ if(u.before[sl]){ inv[sl]={}; for(const k in u.before[sl]) inv[sl][k]=now[sl][k]===undefined?null:now[sl][k]; } }
@@ -1102,7 +1123,7 @@ const HELP={
   ['I tapped Pulled by mistake','Untick it. The sample goes back into the box.'],
   ['How do I mark a box as full?','Open the box and tap <b>Mark as full</b>. The app remembers that this box is full at today’s count, so boxes with bigger samples can be “full” at fewer samples. Tap <b>Unmark full</b> to undo.'],
   ['How do I change the date of a product?','Open the box and tap the small <b>✎</b> next to the product’s date. Pick the new date, or tick <b>Not original date</b> if you do not know when it was first put in the box, then tap <b>Save</b>. <b>Reset</b> goes back to the date from the sheet. The change is shared with everyone and can be undone.'],
-  ['How do I add a sample by hand?','Tap <b>+ Add sample</b> (top, or inside a box). Pick or type the box, enter the product # (item #), then tap Add to box. You can add several in a row. To remove one you added by mistake, open the box and tap the ✕ next to it. If you do not know when it was first put in the box, tick <b>Not the original date</b>: the list then shows “Not original date” instead of a date.'],
+  ['How do I add a sample by hand?','Tap <b>+ Add sample</b> (top, or inside a box). Pick or type the box, enter the product # (item #), then tap Add to box. You can add several in a row. To remove one you added by mistake, open the box and tap the ✕ next to it. If you do not know when it was first put in the box, tick <b>Not the original date</b>: the list then shows “Not original date” instead of a date. You can add many at once: type or paste several product numbers (one per line, or separated by commas or spaces) and they all go into the box together. When you finish you land back in that same box.'],
   ['How do I combine (merge) boxes?','Tap <b>Merge / renumber boxes</b> (or <b>Merge…</b> on a suggestion). Tick the boxes to combine, type the box number the finished box should have (one of them or a brand-new number), check the capacity, then tap Apply. Move the samples physically too. Made a mistake? Settings → Recent box changes → Undo.'],
   ['How do I change a box number?','Open the box and tap <b>Change number</b>, type the new number and Apply. All its samples move with it. Typing the number of another existing box merges them. You can undo it in Settings.'],
   ['How do I undo my last change?','Tap <b>Undo</b> (top right, or in any box window) or press <b>Ctrl+Z</b>. It reverses your last change: a delete, pull, merge, note, mark full, and so on. Tap again to go back further (up to 30 steps while the page stays open). It only undoes <b>your own</b> changes on this device, and it cannot undo importing a new sheet. Changed your mind about an undo? Tap <b>Redo</b> (or Ctrl+Y) to put it back. Starting a new change clears the redo history.'],
@@ -1124,7 +1145,7 @@ const HELP={
   ['Marqué Pulled por error','Quita la marca. La muestra vuelve a la caja.'],
   ['¿Cómo marco una caja como llena?','Abre la caja y toca <b>Mark as full</b>. La app recuerda que esa caja está llena con el número de hoy (las cajas con muestras grandes se llenan con menos). Toca <b>Unmark full</b> para deshacer.'],
   ['¿Cómo cambio la fecha de un producto?','Abre la caja y toca el pequeño <b>✎</b> junto a la fecha del producto. Elige la fecha nueva, o marca <b>Not original date</b> si no sabes cuándo se puso por primera vez en la caja, y toca <b>Save</b>. <b>Reset</b> vuelve a la fecha de la hoja. El cambio lo ve todo el mundo y se puede deshacer.'],
-  ['¿Cómo agrego una muestra a mano?','Toca <b>+ Add sample</b>. Elige o escribe la caja, el número de producto (artículo) y toca Add to box. Para borrar una que agregaste por error, abre la caja y toca la ✕. Si no sabes cuándo se puso por primera vez en la caja, marca <b>Not the original date</b>: la lista mostrará “Not original date” en vez de una fecha.'],
+  ['¿Cómo agrego una muestra a mano?','Toca <b>+ Add sample</b>. Elige o escribe la caja, el número de producto (artículo) y toca Add to box. Para borrar una que agregaste por error, abre la caja y toca la ✕. Si no sabes cuándo se puso por primera vez en la caja, marca <b>Not the original date</b>: la lista mostrará “Not original date” en vez de una fecha. Puedes agregar varios a la vez: escribe o pega varios números de producto (uno por línea, o separados por comas o espacios) y todos entran a la caja juntos. Al terminar regresas a esa misma caja.'],
   ['¿Cómo junto (combino) cajas?','Toca <b>Merge / renumber boxes</b> (o <b>Merge…</b> en una sugerencia). Marca las cajas, escribe el número que tendrá la caja final (uno de ellos o uno nuevo), revisa la capacidad y toca Apply. Mueve también las muestras físicamente. ¿Error? Settings → Recent box changes → Undo.'],
   ['¿Cómo cambio el número de una caja?','Abre la caja y toca <b>Change number</b>, escribe el número nuevo y Apply. Todas sus muestras se van con ella. Si escribes el número de otra caja, se juntan. Se puede deshacer en Settings.'],
   ['¿Cómo deshago mi último cambio?','Toca <b>Undo</b> (arriba a la derecha, o en la ventana de cualquier caja) o presiona <b>Ctrl+Z</b>. Revierte tu último cambio: borrar, pull, juntar cajas, nota, marcar llena, etc. Toca otra vez para retroceder más (hasta 30 pasos mientras la página siga abierta). Solo deshace <b>tus propios</b> cambios en este dispositivo y no puede deshacer la importación de una hoja nueva. ¿Te arrepentiste de deshacer? Toca <b>Redo</b> (o Ctrl+Y) para volver a hacerlo. Un cambio nuevo borra el historial de rehacer.'],
