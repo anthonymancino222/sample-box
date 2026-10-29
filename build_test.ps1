@@ -6,11 +6,13 @@ $t = [IO.File]::ReadAllText("$root\index.html", [Text.Encoding]::UTF8)
 
 $TEST_BACKEND = 'https://script.google.com/macros/s/AKfycbwXhblrMm9LcpQITxHextfT4kp9q_rWzsdCfhi6nKOCqpTIOt1tuPSHR4h8TNgP93CU/exec'
 $TEST_READER  = 'https://script.google.com/macros/s/AKfycbzIrfIWqrBjre1Ebq4pkD04BtK6sUbcz_ZzRcTT9mD6YxHytE1UdNaibXFg7nWKPPxI/exec'
+$TEST_WRITER  = 'https://script.google.com/macros/s/AKfycbwinuDckO0GUAjaOquTfN0JWI5vfP5JCT0eBp7VykxuT_0uzk-GBoJJmNdszOttjD0J/exec'
 
 function Rep($rx, $new) { $m = [regex]::Match($script:t, $rx); if (-not $m.Success) { throw "not found: $rx" }; $script:t = $script:t.Substring(0, $m.Index) + $new + $script:t.Substring($m.Index + $m.Length) }
 
 Rep "const BACKEND_URL = '[^']*';" "const BACKEND_URL = '$TEST_BACKEND';"
 Rep "const SOURCE_URL = '[^']*';"  "const SOURCE_URL = '$TEST_READER';"
+Rep "const WRITER_URL = '[^']*';" "const WRITER_URL = '$TEST_WRITER';"
 $t = $t.Replace('sampleBoxTracker', 'sampleBoxTrackerTEST')                       # separate browser storage
 $t = $t.Replace('href="icons/', 'href="../icons/').Replace('url(icons/marble.png)', 'url(../icons/marble.png)')
 $t = [regex]::Replace($t, '<link rel="manifest" href="manifest.json">\r?\n?', '')   # the test page is not an installable app

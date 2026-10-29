@@ -14,7 +14,8 @@
  * All writes take a script lock and are idempotent upserts by key.
  */
 var HEADERS = {
-  Rows:   ['k','box','series','ts','job','item'],
+  Rows:   ['k','box','series','ts','job','item','id','row','raw'],
+  SheetLog: ['batch','at','id','row','item','old','new','status'],
   Pulls:  ['k','from','to','at'],
   Manual: ['k','box','series','ts','job','item'],
   Meta:   ['box','loc','cap','full'],
@@ -29,6 +30,7 @@ var HEADERS = {
 function doGet(e){
   var p = (e && e.parameter) || {};
   if (p.action === 'ping') return out({ok:true, v: version()});
+  if (p.action === 'sheetlog') return out({ok:true, rows: sheetLogTail(500)});
   var v = version();
   if (p.since !== undefined && String(p.since) === String(v)) return out({ok:true, v:v, unchanged:true});
   return out({ok:true, v:v, state: readState()});
@@ -64,6 +66,8 @@ function applyOp(o){
     case 'delNote':   remove('Notes', o.k); log(o.op,o.k); break;
     case 'dismissDup':   upsert('Dismissed', o.item, [o.item, o.at||Date.now(), o.n||0]); log(o.op,o.item); break;
     case 'undismissDup': remove('Dismissed', o.item); log(o.op,o.item); break;
+    case 'logWrites':  logWrites(o.entries||[]); break;
+    case 'markBatch':  markBatch(o.batch, o.status||'reverted'); log(o.op,o.batch); break;
     case 'setCap':    setConfig('cap', o.cap); log(o.op,String(o.cap)); break;
     case 'import':    doImport(o); log(o.op, String((o.rows||[]).length)); break;
     default: throw new Error('unknown op '+o.op);
@@ -72,9 +76,10 @@ function applyOp(o){
 
 /* ---------- import: replace Rows (+ pruned Pulls/Manual) in one go ---------- */
 function doImport(o){
-  var rows = (o.rows||[]).map(function(r){ return [r.k,r.box,r.series||'Box',r.ts||'',r.job||'',r.item||'']; });
+  var rows = (o.rows||[]).map(function(r){ return [r.k,r.box,r.series||'Box',r.ts||'',r.job||'',r.item||'',r.id||'',r.row||'',r.raw||'']; });
   if (rows.length === 0) throw new Error('refusing to import 0 rows');          // data-safety guard
   replaceAll('Rows', rows);
+  sheet('Rows').getRange(1,1,1,HEADERS.Rows.length).setValues([HEADERS.Rows]);   // keep the header row in step with the columns
   replaceAll('Pulls',  (o.pulled||[]).map(function(p){ return [p.k,p.from||'',p.to||'',p.at||'']; }));
   replaceAll('Manual', (o.manual||[]).map(function(m){ return [m.k,m.box,m.series||'Box',m.ts||'',m.job||'',m.item||'']; }));
   setConfig('stamp', o.stamp || Date.now());
@@ -106,7 +111,7 @@ function readState(){
     manual: table('Manual').map(function(r){ var o=rowObj(r); o.manual=true; return o; })
   };
 }
-function rowObj(r){ return {k:String(r[0]), box:String(r[1]), series:String(r[2]||'Box'), ts: r[3]===''?null:Number(r[3]), job:String(r[4]), item:String(r[5])}; }
+function rowObj(r){ return {k:String(r[0]), box:String(r[1]), series:String(r[2]||'Box'), ts: r[3]===''?null:Number(r[3]), job:String(r[4]), item:String(r[5]), id:String(r[6]==null?'':r[6]), row:Number(r[7])||0, raw:String(r[8]==null?'':r[8])}; }
 
 /* ---------- sheet helpers ---------- */
 function sheet(name){
@@ -143,6 +148,23 @@ function remove(name, key){
 function datesMap(){ var m={}; table('Dates').forEach(function(r){ m[String(r[0])]={ts:Number(r[1])||0,no:String(r[2])==='1'}; }); return m; }
 function notesMap(){ var m={}; table('Notes').forEach(function(r){ m[String(r[0])]={text:String(r[1]),at:Number(r[2])||0}; }); return m; }
 function dismissedMap(){ var m={}; table('Dismissed').forEach(function(r){ m[String(r[0])]={at:Number(r[1])||0,n:Number(r[2])||0}; }); return m; }
+function logWrites(entries){
+  if (!entries.length) return;
+  var sh = sheet('SheetLog'), start = Math.max(sh.getLastRow(),1) + 1;
+  var vals = entries.map(function(e){ return [e.batch, e.at, e.id, e.row, e.item||'', e.old==null?'':e.old, e.new==null?'':e.new, e.status||'ok']; });
+  sh.getRange(start,1,vals.length,8).setNumberFormat('@').setValues(vals.map(function(r){ return r.map(String); }));
+}
+function markBatch(batch, status){
+  var sh = sheet('SheetLog'), n = sh.getLastRow(); if (n < 2) return;
+  var vals = sh.getRange(2,1,n-1,1).getValues(), st = sh.getRange(2,8,n-1,1);
+  var cur = st.getValues(); for (var i=0;i<vals.length;i++) if (String(vals[i][0])===String(batch) && cur[i][0]==='ok') cur[i][0]=status;
+  st.setValues(cur);
+}
+function sheetLogTail(max){
+  var sh = sheet('SheetLog'), n = sh.getLastRow(); if (n < 2) return [];
+  var from = Math.max(2, n-max+1);
+  return sh.getRange(from,1,n-from+1,8).getValues().map(function(r){ return r.map(String); });
+}
 function removeWhere(name, col, val){
   var sh = sheet(name), n = sh.getLastRow(); if (n < 2) return;
   var vals = sh.getRange(2,col+1,n-1,1).getValues();

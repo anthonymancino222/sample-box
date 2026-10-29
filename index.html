@@ -352,6 +352,7 @@ button:disabled{opacity:.4;cursor:default;box-shadow:none}
 .toast.show{opacity:1;transform:translateX(-50%)}
 .ed{padding:2px 8px;border-radius:99px;margin-left:6px}
 .dtinp{min-width:150px}
+.flash{padding:10px 14px;border-radius:10px;background:var(--okbg);color:var(--ok);margin:0 0 10px}
 </style>
 </head>
 <body>
@@ -360,6 +361,7 @@ button:disabled{opacity:.4;cursor:default;box-shadow:none}
     <div class="tools">
       <button id="undoBtn" disabled title="Nothing to undo yet"><span class="ico" data-ic="undo"></span><span class="lbl">Undo</span></button>
       <button id="redoBtn" disabled title="Nothing to redo"><span class="ico" data-ic="redo"></span><span class="lbl">Redo</span></button>
+      <button id="sheetBtn" hidden title="See which Sample Location cells would change in the Google Sheet, and write them"><span class="ico" data-ic="write"></span><span class="lbl">Sheet changes</span></button>
       <button id="syncBtn" hidden title="Read the latest boxes from the Google Sheet"><span class="ico" data-ic="sheet"></span><span class="lbl">Sync sheet</span></button>
       <button id="updateBtn" title="Reload the newest version of the app"><span class="ico" data-ic="update"></span><span class="lbl">Update</span></button>
       <button id="themeBtn" title="Switch light / dark"><span class="ico" data-ic="moon"></span><span class="lbl">Dark</span></button>
@@ -428,6 +430,8 @@ function save(){ try{ localStorage.setItem(LS, JSON.stringify(state)); }catch(e)
 const BACKEND_URL = 'https://script.google.com/macros/s/AKfycbwHG1fcnBDV5GWbEc--WLKuvC9GyyIYHSTUvbPWsJDCvUsEeOvd_jeK5KSBGA70OMBE/exec';
 // Live feed from the QA checklist Google Sheet (read-only reader). Empty = feature off. The TEST page sets this; the live app leaves it empty until you decide.
 const SOURCE_URL = '';
+// Writer: the ONLY thing allowed to change the sheet (Sample Location column). Empty = off. The TEST page sets this; the live app leaves it empty.
+const WRITER_URL = '';
 const OB = 'sampleBoxTracker.outbox';
 let outbox = (()=>{ try{ return JSON.parse(localStorage.getItem(OB))||[]; }catch(e){ return []; } })();
 let flushing=false, polling=false, lastSync=null, syncErr=null;
@@ -531,7 +535,7 @@ function ingest(aoa,opts){ opts=opts||{};
   }
   if(hi<0) throw new Error('Could not find a "Sample Location" column. Make sure the file has the same 4 columns as always (including the Sample Location header).');
   const h=aoa[hi];
-  c={ts:findCol(h,['timestamp','date']), job:findCol(h,['jobnumber','job']), item:findCol(h,['inventoryitem','item','productid']), loc:findCol(h,['samplelocation','location'])};
+  c={id:findCol(h,['sheetid']), srow:findCol(h,['sheetrow']), ts:findCol(h,['timestamp','date']), job:findCol(h,['jobnumber','job']), item:findCol(h,['inventoryitem','item','productid']), loc:findCol(h,['samplelocation','location'])};
   const rows=[], seen=new Set(), ignored={};
   for(let r=hi+1;r<aoa.length;r++){
     const a=aoa[r]; if(!a) continue;
@@ -543,7 +547,7 @@ function ingest(aoa,opts){ opts=opts||{};
     let item=String(a[c.item]==null?'':a[c.item]).replace(/\.0$/,'').trim(); if(item==='0') item='';
     const key=(d?d.getTime():'')+'|'+job+'|'+item+'|'+n.box;
     if(seen.has(key)) continue; seen.add(key);
-    rows.push({k:(d?d.getTime():'')+'|'+job+'|'+item, box:n.box, series:n.series||'Box', ts:d?d.getTime():null, job, item});
+    rows.push({k:(d?d.getTime():'')+'|'+job+'|'+item, box:n.box, series:n.series||'Box', ts:d?d.getTime():null, job, item, id:c.id>=0?String(a[c.id]||''):'', row:c.srow>=0?(Number(a[c.srow])||0):0, raw:c.id>=0?String(a[c.loc]==null?'':a[c.loc]).trim():''});
   }
   if(!rows.length) throw new Error('No sample boxes found in that file, so nothing was changed.');
   if(!opts.noConfirm && BACKEND_URL && state.rows.length && !confirm(`This replaces the shared sample data for everyone with ${rows.length} rows from this file. Continue?`)) return;
@@ -1131,6 +1135,7 @@ const HELP={
   ['How do I combine (merge) boxes?','Tap <b>Merge / renumber boxes</b> (or <b>Merge…</b> on a suggestion). Tick the boxes to combine, type the box number the finished box should have (one of them or a brand-new number), check the capacity, then tap Apply. Move the samples physically too. Made a mistake? Settings → Recent box changes → Undo.'],
   ['How do I change a box number?','Open the box and tap <b>Change number</b>, type the new number and Apply. All its samples move with it. Typing the number of another existing box merges them. You can undo it in Settings.'],
   ['How do I undo my last change?','Tap <b>Undo</b> (top right, or in any box window) or press <b>Ctrl+Z</b>. It reverses your last change: a delete, pull, merge, note, mark full, and so on. Tap again to go back further (up to 30 steps while the page stays open). It only undoes <b>your own</b> changes on this device, and it cannot undo importing a new sheet. Changed your mind about an undo? Tap <b>Redo</b> (or Ctrl+Y) to put it back. Starting a new change clears the redo history.'],
+  ['What is “Sheet changes”? (TEST version)','On the TEST version, your box changes (renumber, merge, delete, pull) are a draft. Tap <b>Sheet changes</b> to see exactly which Sample Location cells would change, then tap <b>Write … to the Google Sheet</b> (it asks for the write passphrase and for confirmation). Only the Sample Location column is ever changed, each old value is saved, and <b>Revert</b> undoes a whole batch.'],
   ['How do I delete a box?','Open the box and tap <b>Delete box</b>. The app asks “Are you sure?” and tells you how many samples are in it. Tap <b>Yes, delete</b> to confirm. The box disappears for everyone. Changed your mind? Settings → Recent box changes → Undo. To keep the samples, merge the box into another one instead.'],
   ['How do I delete one product from a box?','Open the box, find the product (the box has its own search field), and tap <b>Delete</b> on its row. The app asks “Are you sure?”. The product disappears for everyone. Changed your mind? Tap <b>Restore</b> on that row. Use <b>Pulled</b> instead when the product moved to another box. To delete many at once, tick the boxes in the first column (the top box selects everything shown) and tap <b>Delete selected</b>. After deleting, tap <b>Refresh</b> in the box window to hide the deleted products and see only what is left (tap <b>Show deleted</b> to bring the list back). When you are sure, tap <b>Commit N deleted</b> to make the deletions final: those products will not show in that box again and cannot be restored. (Settings has <b>Commit all deletions</b> for every box at once.)'],
   ['How do I add a note to a product?','Open the box and tap <b>+ Note</b> on the product’s row, type your note and tap <b>Save</b> (or press Enter). Tap <b>Edit</b> to change it, or <b>Delete</b> inside the editor to remove it. Notes are shared with everyone, the box search also finds words inside notes, and the Excel export includes them. A note stays with that sample even if you move it to another box.'],
@@ -1153,6 +1158,7 @@ const HELP={
   ['¿Cómo junto (combino) cajas?','Toca <b>Merge / renumber boxes</b> (o <b>Merge…</b> en una sugerencia). Marca las cajas, escribe el número que tendrá la caja final (uno de ellos o uno nuevo), revisa la capacidad y toca Apply. Mueve también las muestras físicamente. ¿Error? Settings → Recent box changes → Undo.'],
   ['¿Cómo cambio el número de una caja?','Abre la caja y toca <b>Change number</b>, escribe el número nuevo y Apply. Todas sus muestras se van con ella. Si escribes el número de otra caja, se juntan. Se puede deshacer en Settings.'],
   ['¿Cómo deshago mi último cambio?','Toca <b>Undo</b> (arriba a la derecha, o en la ventana de cualquier caja) o presiona <b>Ctrl+Z</b>. Revierte tu último cambio: borrar, pull, juntar cajas, nota, marcar llena, etc. Toca otra vez para retroceder más (hasta 30 pasos mientras la página siga abierta). Solo deshace <b>tus propios</b> cambios en este dispositivo y no puede deshacer la importación de una hoja nueva. ¿Te arrepentiste de deshacer? Toca <b>Redo</b> (o Ctrl+Y) para volver a hacerlo. Un cambio nuevo borra el historial de rehacer.'],
+  ['¿Qué es “Sheet changes”? (versión TEST)','En la versión TEST, tus cambios de cajas (renumerar, juntar, borrar, mover) son un borrador. Toca <b>Sheet changes</b> para ver qué celdas de Sample Location cambiarían y luego <b>Write … to the Google Sheet</b> (pide la contraseña y una confirmación). Solo se cambia la columna Sample Location, cada valor anterior se guarda y <b>Revert</b> deshace todo un lote.'],
   ['¿Cómo borro una caja?','Abre la caja y toca <b>Delete box</b>. La app pregunta “¿Estás seguro?” y dice cuántas muestras tiene. Toca <b>Yes, delete</b> para confirmar. La caja desaparece para todos. ¿Te arrepentiste? Settings → Recent box changes → Undo. Para conservar las muestras, junta la caja con otra.'],
   ['¿Cómo borro un solo producto de una caja?','Abre la caja, busca el producto (la caja tiene su propio campo de búsqueda) y toca <b>Delete</b> en su fila. La app pregunta “¿Estás seguro?”. El producto desaparece para todos. ¿Te arrepentiste? Toca <b>Restore</b> en esa fila. Usa <b>Pulled</b> cuando el producto se movió a otra caja. Para borrar varios a la vez, marca las casillas de la primera columna (la de arriba selecciona todo lo que se ve) y toca <b>Delete selected</b>. Después de borrar, toca <b>Refresh</b> en la ventana de la caja para ocultar los productos borrados y ver solo los que quedan (toca <b>Show deleted</b> para verlos otra vez). Cuando estés seguro, toca <b>Commit N deleted</b> para dejar los borrados como definitivos: esos productos no volverán a aparecer en esa caja y no se pueden restaurar. (En Settings, <b>Commit all deletions</b> lo hace para todas las cajas.)'],
   ['¿Cómo agrego una nota a un producto?','Abre la caja y toca <b>+ Note</b> en la fila del producto, escribe tu nota y toca <b>Save</b> (o presiona Enter). Toca <b>Edit</b> para cambiarla o <b>Delete</b> dentro del editor para quitarla. Las notas las ve todo el mundo, la búsqueda de la caja también encuentra palabras de las notas y el Excel las incluye. La nota se queda con esa muestra aunque la muevas a otra caja.'],
@@ -1188,6 +1194,7 @@ const IC={
   stylus:'<path d="M4 20l1-4L16.5 4.5a2 2 0 0 1 3 3L8 19l-4 1z"/><path d="M14 7l3 3"/>',
   knot:'<circle cx="9" cy="12" r="5"/><circle cx="15" cy="12" r="5"/>',
   dup:'<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
+  write:'<path d="M4 20l1-4L16.5 4.5a2 2 0 0 1 3 3L8 19l-4 1z"/><path d="M4 20h16"/>',
   sheet:'<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16M10 4v16"/>',
   gear:'<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/>'
 };
@@ -1230,6 +1237,113 @@ $('settings').onclick=openSettings;
 $('addBtn').onclick=()=>openAdd('');
 $('mergeBtn').onclick=()=>openMerge([],'');
 $('dupBtn').onclick=()=>openDupes();
+/* ---------- write box changes back to the Google Sheet (Sample Location column ONLY) ----------
+   Your box changes (renumber, merge, delete, pull) are a draft inside the app. "Sheet changes" shows exactly which
+   Sample Location cells would change, writes them after you confirm (passphrase), logs the old + new value of every
+   cell, and can revert a whole batch. Notes, edited dates and hand-added products never go to the sheet. */
+const sbNorm=s=>String(s==null?'':s).trim();
+function sheetChanges(){
+  const changes=[]; let noId=0, complex=0;
+  complex=Object.keys(state.pulled).filter(k=>k.includes('>')).length;
+  for(const r of state.rows){
+    if(!r.id||!r.row){ noId++; continue; }
+    const raw=sbNorm(r.raw!=null?r.raw:''); let desired;
+    const p=state.pulled[r.k], b=resolveBox(r.box,r.ts);
+    if(p && (!p.from || resolveBox(p.from,null,p.at)===b)){
+      const to=sbNorm(p.to);
+      if(to===''||to===DELD||to===COMMIT) desired='';
+      else { const n=normLoc(to); desired=n.box?resolveBox(n.box,null,p.at):to; }
+    } else desired=(b!==r.box)?b:raw;
+    if(desired===DEL) desired='';
+    if(sbNorm(desired)!==raw) changes.push({row:r.row,id:r.id,expect:raw,set:sbNorm(desired),item:r.item,k:r.k});
+  }
+  return {changes,noId,complex,appOnly:state.manual.length};
+}
+function sheetPending(){ if(!WRITER_URL) return 0; try{ return sheetChanges().changes.length; }catch(e){ return 0; } }
+function sheetBadge(){ const b=document.getElementById('sheetBtn'); if(!b) return; const n=sheetPending(); b.querySelector('.lbl').textContent=n?('Sheet changes ('+n+')'):'Sheet changes'; }
+const sbPass=()=>{ try{ return sessionStorage.getItem('sampleBoxTracker.writePass')||''; }catch(e){ return ''; } };
+async function sbPost(changes,batch,pass){
+  const out=[];
+  for(let i=0;i<changes.length;i+=400){
+    const part=changes.slice(i,i+400);
+    const r=await fetch(WRITER_URL,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({pass,batch,changes:part.map(c=>({row:c.row,id:c.id,expect:c.expect,set:c.set}))})});
+    const j=await r.json(); if(!j.ok) throw new Error(j.error||'the sheet writer refused');
+    j.results.forEach((st,n)=>out.push({c:part[n],st}));
+  }
+  return out;
+}
+async function writeToSheet(){
+  const msg=$('swmsg'), btn=$('swgo'); const pass=$('swpass').value.trim();
+  const cs=sheetChanges();
+  if(!cs.changes.length){ msg.textContent='Nothing to write.'; return; }
+  if(!pass){ msg.textContent='Enter the write passphrase first.'; return; }
+  if(!confirm('Update '+cs.changes.length+' cell'+(cs.changes.length===1?'':'s')+' in the Sample Location column of the Google Sheet?\n\nOnly that column changes. Every old value is saved, and you can revert this batch afterwards.')) return;
+  try{ sessionStorage.setItem('sampleBoxTracker.writePass',pass); }catch(e){}
+  btn.disabled=true; msg.textContent='Writing to the Google Sheet…';
+  const batch='b'+Date.now().toString(36), at=Date.now();
+  try{
+    const res=await sbPost(cs.changes,batch,pass);
+    const okSet=new Set(), fails=[];
+    res.forEach(x=>{ if(x.st==='ok'||x.st==='already') okSet.add(x.c.k); else fails.push(x); });
+    op({op:'logWrites',entries:res.map(x=>({batch,at,id:x.c.id,row:x.c.row,item:x.c.item,old:x.c.expect,new:x.c.set,status:x.st}))});
+    // the written rows are no longer a draft: drop their pulls
+    for(const k of Object.keys(state.pulled)){ if(okSet.has(k.split('>')[0])){ delete state.pulled[k]; op({op:'clearPull',k}); } }
+    if(!fails.length){
+      // every box change is now real in the sheet -> retire the renumber/merge/delete drafts (keep hand-added products consistent)
+      state.manual.forEach(m=>{ const nb=resolveBox(m.box,m.ts); if(nb===DEL){ state.pulled[m.k]={from:m.box,to:COMMIT,at}; opPull(m.k); } else if(nb!==m.box){ m.box=nb; m.series=seriesOf(nb); op({op:'addManual',entry:m}); } });
+      [...new Set(state.moves.map(m=>m.g))].forEach(g=>op({op:'delMoves',g})); state.moves=[];
+    }
+    save(); undoReset(); render();
+    msg.textContent=(res.length-fails.length)+' written'+(fails.length?(', '+fails.length+' skipped because the sheet changed meanwhile: '+fails.slice(0,3).map(f=>'row '+f.c.row+' ('+f.st+')').join(', ')):'')+'. Refreshing from the sheet…';
+    state.srcHash=''; await syncFromSheet(true);
+    openSheetChanges(msg.textContent.replace(/ Refreshing from the sheet…$/,'')+' Batch '+batch+' saved in the log.');
+  }catch(e){ msg.textContent='Could not write: '+(e.message||e); btn.disabled=false; }
+}
+async function revertBatch(batch){
+  const pass=sbPass()||(($('swpass')||{}).value||'').trim(); if(!pass){ alert('Enter the write passphrase first (in the box above).'); return; }
+  if(!confirm('Revert batch '+batch+'? The cells it changed go back to their old values in the Google Sheet.')) return;
+  try{
+    const j=await (await fetch(BACKEND_URL+'?action=sheetlog&cb='+Date.now())).json();
+    const ents=(j.rows||[]).filter(r=>r[0]===batch&&r[7]==='ok');
+    if(!ents.length){ alert('Nothing to revert for that batch.'); return; }
+    const inv=ents.map(r=>({row:Number(r[3]),id:r[2],expect:r[6],set:r[5],item:r[4]}));
+    const rb='r'+Date.now().toString(36), at=Date.now();
+    const res=await sbPost(inv,rb,pass);
+    op({op:'logWrites',entries:res.map(x=>({batch:rb,at,id:x.c.id,row:x.c.row,item:x.c.item,old:x.c.expect,new:x.c.set,status:x.st}))});
+    op({op:'markBatch',batch,status:'reverted'});
+    state.srcHash=''; await syncFromSheet(true);
+    openSheetChanges('Reverted '+res.filter(x=>x.st==='ok').length+' cell(s) from batch '+batch+'.');
+  }catch(e){ alert('Could not revert: '+(e.message||e)); }
+}
+async function openSheetChanges(note){
+  curBox=null; $('dbody').onchange=null; $('dbody').onclick=null; $('dctl').innerHTML='';
+  $('dt').textContent='Sheet changes';
+  const cs=sheetChanges(), groups={};
+  cs.changes.forEach(c=>{ const key=(c.expect||'(blank)')+'  →  '+(c.set||'(cleared)'); groups[key]=(groups[key]||0)+1; });
+  const glist=Object.entries(groups).sort((a,b)=>b[1]-a[1]);
+  $('dbody').innerHTML=`${note?`<div class="flash">${esc(note)}</div>`:''}
+    <p class="sub">Only the <b>Sample Location</b> column of the Google Sheet is ever changed. Notes, edited dates and hand-added products stay in the app.</p>
+    <h4 style="font:600 20px var(--serif);margin:10px 0 6px">Waiting to be written <span class="sub">(${cs.changes.length})</span></h4>
+    ${glist.length?glist.slice(0,60).map(([k,n])=>`<div class="sug"><span style="font-family:var(--mono)">${esc(k)}</span><span class="sub">${n} product${n>1?'s':''}</span></div>`).join('')+(glist.length>60?`<div class="sub">…and ${glist.length-60} more kinds of change</div>`:''):'<div class="sub">Nothing is waiting. Renumber, merge, delete or pull products first, then come back here.</div>'}
+    ${cs.noId?`<p class="sub">${cs.noId} product${cs.noId>1?'s':''} have no sheet row yet: tap <b>Sync sheet</b> once so every product knows its row.</p>`:''}
+    ${cs.complex?`<p class="sub">${cs.complex} chained move${cs.complex>1?'s':''} (a product pulled twice) will be written after the first move is done.</p>`:''}
+    ${cs.appOnly?`<p class="sub">${cs.appOnly} hand-added product${cs.appOnly>1?'s':''} live only in the app (they have no row in the sheet).</p>`:''}
+    <p><label>Write passphrase<br><input id="swpass" type="password" autocomplete="off" value="${esc(sbPass())}" style="width:240px"></label></p>
+    <p id="swmsg" class="sub" style="color:var(--danger)"></p>
+    <p><button class="pri" id="swgo" ${cs.changes.length?'':'disabled'}>Write ${cs.changes.length} change${cs.changes.length===1?'':'s'} to the Google Sheet</button></p>
+    <h4 style="font:600 20px var(--serif);margin:18px 0 6px">Recent writes</h4><div id="swlog" class="sub">Loading…</div>`;
+  if(!$('dlg').open) $('dlg').showModal();
+  $('swgo').onclick=writeToSheet;
+  $('dbody').onclick=e=>{ const b=e.target.closest&&e.target.closest('[data-revert]'); if(b) revertBatch(b.dataset.revert); };
+  try{
+    const j=await (await fetch(BACKEND_URL+'?action=sheetlog&cb='+Date.now())).json(); const by={};
+    (j.rows||[]).forEach(r=>{ const b=by[r[0]]||(by[r[0]]={batch:r[0],at:Number(r[1]),n:0,st:r[7],items:[]}); if(r[7]==='ok'||r[7]==='reverted') b.n++; if(r[7]==='reverted') b.st='reverted'; if(b.items.length<3) b.items.push(r[4]); });
+    const bl=Object.values(by).sort((a,b)=>b.at-a.at).slice(0,8);
+    $('swlog').innerHTML=bl.length?bl.map(b=>`<div class="sug"><span>${new Date(b.at).toLocaleString()} · ${b.n} cell${b.n===1?'':'s'}${b.batch[0]==='r'?' · a revert':''}</span><span class="sub" style="font-family:var(--mono)">${esc(b.items.join(', '))}</span>${b.st==='reverted'?'<span class="pill">reverted</span>':(b.batch[0]==='r'?'':`<button class="sm" data-revert="${esc(b.batch)}">Revert</button>`)}</div>`).join(''):'No writes yet.';
+  }catch(e){ $('swlog').textContent='Could not load the log.'; }
+}
+if(WRITER_URL){ const sbtn=document.getElementById('sheetBtn'); if(sbtn){ sbtn.hidden=false; sbtn.onclick=()=>openSheetChanges(); } setInterval(sheetBadge,1500); }
+
 /* ---------- sync from the Google Sheet (read-only reader) ---------- */
 let sheetSyncing=false;
 function sheetStatus(msg){ const el=document.getElementById('sheetStat'); if(el) el.textContent=msg||''; }
@@ -1244,9 +1358,9 @@ async function syncFromSheet(auto){
     if(j.hash===state.srcHash && state.rows.length){ sheetStatus('Sheet checked '+new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})+' · already up to date'); if(!auto) toast('Already up to date with the Google Sheet'); return; }
     // keep existing row keys stable (older imports were off by a millisecond on some rows)
     const alias=new Map(); state.rows.forEach(x=>{ if(x.ts!=null) alias.set(x.job+'|'+x.item+'|'+Math.round(x.ts/1000),x.ts); });
-    const aoa=[['Timestamp','Job_Number','Inventory_Item','Sample Location']].concat(j.rows.map(x=>{
+    const aoa=[['Timestamp','Job_Number','Inventory_Item','Sample Location','Sheet ID','Sheet Row']].concat(j.rows.map(x=>{
       const ms=x[1]; const ts=ms==null?null:(alias.get(x[2]+'|'+x[3]+'|'+Math.round(ms/1000))??ms);
-      return [ts==null?'':new Date(ts),x[2],x[3],x[4]]; }));
+      return [ts==null?'':new Date(ts),x[2],x[3],x[4],x[0],x[5]]; }));
     ingest(aoa,{noConfirm:true,srcHash:j.hash});
     sheetStatus('Synced from the Google Sheet '+new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}));
     toast('Synced '+state.rows.length+' products from the Google Sheet');
