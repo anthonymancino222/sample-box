@@ -1380,26 +1380,31 @@ function reconPlan(lines,whole){
       if(!el.length) plan.add.push({l});
       else if(el.length===1){ used.add(el[0].k); plan.move.push({l,r:el[0]}); }
       else plan.amb.push({l,cands:el}); } }));
-  if(whole){ const bs=new Set(lines.map(l=>l.box)); E.filter(r=>bs.has(r.box)&&!used.has(r.k)).forEach(r=>plan.rest.push({r})); }
+  if(whole&&whole.size) E.filter(r=>whole.has(r.box)&&!used.has(r.k)).forEach(r=>plan.rest.push({r}));
   return plan;
 }
+let recWhole=null;
 function openReconcile(){
+  recWhole=null;
   curBox=null; $('dbody').onchange=null; $('dbody').onclick=null; $('dctl').innerHTML='';
   $('dt').textContent='Reconcile with the paper count';
   $('dbody').innerHTML=`<p class="sub">Load the list made from your QA tech's paperwork (box, job, item, status). I turn the photos into this file. The app shows what it would do and changes nothing until you press <b>Add to my draft</b>. Then review everything in <b>Sheet changes</b>.</p>
     <p><input type="file" id="recfile" accept=".csv,.txt"></p>
     <p><textarea id="rectxt" rows="4" placeholder="…or paste the lines here:&#10;Box 5,41465,107100,in&#10;Box 5,40965,108924,out&#10;Box 5,,115417,extra" style="width:100%;font-family:var(--mono)"></textarea></p>
-    <p><label><input type="checkbox" id="recwhole" checked> This list is <b>everything</b> physically in the box. Delete every other entry the app has in that box.</label></p>
     <p><button class="pri" id="reccheck">Check it</button></p><div id="recout"></div>`;
   if(!$('dlg').open) $('dlg').showModal();
   $('recfile').onchange=async e=>{ const f=e.target.files[0]; if(f) $('rectxt').value=await f.text(); };
   $('reccheck').onclick=()=>{
     const {lines,bad}=reconParse($('rectxt').value), el=$('recout');
     if(!lines.length){ el.innerHTML='<p class="sub" style="color:var(--danger)">No usable lines found.</p>'; return; }
-    const P=reconPlan(lines,$('recwhole').checked), boxes=[...new Set(lines.map(l=>l.box))].join(', ');
+    const cnt={}; lines.forEach(l=>cnt[l.box]=(cnt[l.box]||0)+1);
+    if(!recWhole) recWhole=new Set([Object.keys(cnt).sort((a,b)=>cnt[b]-cnt[a])[0]]);
+    const P=reconPlan(lines,recWhole), boxes=[...new Set(lines.map(l=>l.box))].join(', ');
     const cut=(arr,fn,n=40)=>arr.slice(0,n).map(fn).join('')+(arr.length>n?`<div class="sub">…and ${arr.length-n} more</div>`:'');
     const row=(a,b)=>`<div class="sug"><span style="font-family:var(--mono)">${a}</span><span class="sub">${b}</span></div>`;
     el.innerHTML=`<h4 style="font:600 20px var(--serif);margin:10px 0 4px">${esc(boxes)} · ${lines.length} lines${bad?` (${bad} unreadable skipped)`:''}</h4>
+      <p class="sub">Tick a box only if this paper covers <b>everything</b> physically in it. Then every other entry the app has in that box is deleted.</p>
+      <p>${Object.keys(cnt).map(b=>`<label style="margin-right:14px"><input type="checkbox" data-whole="${esc(b)}" ${recWhole.has(b)?'checked':''}> ${esc(b)} is complete</label>`).join('')}</p>
       <div class="sug"><b>Confirmed present</b><span class="sub">${P.confirmed} (no change)</span></div>
       <details open><summary><b>Not in the box → delete (${P.del.length})</b></summary>${cut(P.del,x=>row(esc(x.l.item),esc(x.l.box)+' · job '+esc(x.l.job||'-')))}</details>
       ${P.rest.length?`<details open><summary><b>Not on the paper at all → delete (${P.rest.length})</b></summary>${cut(P.rest,x=>row(esc(x.r.item),esc(x.r.box)+' · job '+esc(x.r.job||'-')),60)}</details>`:''}
@@ -1408,6 +1413,7 @@ function openReconcile(){
       <details open><summary><b>Found here, but the app has it in several boxes → you choose (${P.amb.length})</b></summary>${P.amb.map((x,i)=>`<div class="sug"><span style="font-family:var(--mono)">${esc(x.l.item)} → ${esc(x.l.box)}</span><select data-amb="${i}"><option value="-1">Don't move (decide later)</option>${x.cands.map((c,j)=>`<option value="${j}">Move the one in ${esc(c.box)} (${esc(fdate(c.ts))})</option>`).join('')}<option value="add">It's a new one: add (app only)</option></select></div>`).join('')}</details>
       ${P.miss.length?`<details><summary><b>Doesn't match the app (${P.miss.length})</b></summary>${cut(P.miss,x=>row(esc(x.l.item)+' ('+x.l.status+')',esc(x.why)))}</details>`:''}
       <p style="margin-top:14px"><button class="pri" id="recgo" ${(P.del.length+P.rest.length+P.move.length+P.add.length+P.amb.length)?'':'disabled'}>Add to my draft</button></p><p id="recmsg" class="sub"></p>`;
+    el.querySelectorAll('[data-whole]').forEach(c=>c.onchange=()=>{ c.checked?recWhole.add(c.dataset.whole):recWhole.delete(c.dataset.whole); $('reccheck').click(); });
     $('recgo').onclick=()=>{
       const at=Date.now(); let n={del:0,move:0,add:0};
       P.del.concat(P.rest).forEach(x=>{ state.pulled[x.r.k]={from:x.r.box,to:DELD,at}; opPull(x.r.k); n.del++; });
