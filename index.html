@@ -361,6 +361,7 @@ button:disabled{opacity:.4;cursor:default;box-shadow:none}
     <div class="tools">
       <button id="undoBtn" disabled title="Nothing to undo yet"><span class="ico" data-ic="undo"></span><span class="lbl">Undo</span></button>
       <button id="redoBtn" disabled title="Nothing to redo"><span class="ico" data-ic="redo"></span><span class="lbl">Redo</span></button>
+      <button id="reconBtn" hidden title="Compare the app with the QA tech's paper count"><span class="ico" data-ic="check"></span><span class="lbl">Reconcile</span></button>
       <button id="sheetBtn" hidden title="See which Sample Location cells would change in the Google Sheet, and write them"><span class="ico" data-ic="write"></span><span class="lbl">Sheet changes</span></button>
       <button id="syncBtn" hidden title="Read the latest boxes from the Google Sheet"><span class="ico" data-ic="sheet"></span><span class="lbl">Sync sheet</span></button>
       <button id="updateBtn" title="Reload the newest version of the app"><span class="ico" data-ic="update"></span><span class="lbl">Update</span></button>
@@ -1136,6 +1137,7 @@ const HELP={
   ['How do I change a box number?','Open the box and tap <b>Change number</b>, type the new number and Apply. All its samples move with it. Typing the number of another existing box merges them. You can undo it in Settings.'],
   ['How do I undo my last change?','Tap <b>Undo</b> (top right, or in any box window) or press <b>Ctrl+Z</b>. It reverses your last change: a delete, pull, merge, note, mark full, and so on. Tap again to go back further (up to 30 steps while the page stays open). It only undoes <b>your own</b> changes on this device, and it cannot undo importing a new sheet. Changed your mind about an undo? Tap <b>Redo</b> (or Ctrl+Y) to put it back. Starting a new change clears the redo history.'],
   ['What is “Sheet changes”? (TEST version)','On the TEST version, your box changes (renumber, merge, delete, pull) are a draft. Tap <b>Sheet changes</b> to see exactly which Sample Location cells would change, then tap <b>Write … to the Google Sheet</b> (it asks for the write passphrase and for confirmation). Only the Sample Location column is ever changed, each old value is saved, and <b>Revert</b> undoes a whole batch.'],
+  ['What is âReconcileâ? (TEST version)','Reconcile compares the app with the QA tech’s paper count. It reads a list (box, job, item, status) made from the photos: ticked = there, empty box = not in the box, handwritten = found in the box but not listed. It then shows what it would do: delete the ones not in the box, move products the sheet puts in another box, and add unrecorded products in the app only. Nothing happens until you press <b>Add to my draft</b>, and nothing reaches the Google Sheet until you confirm it in <b>Sheet changes</b>.'],
   ['How do I delete a box?','Open the box and tap <b>Delete box</b>. The app asks “Are you sure?” and tells you how many samples are in it. Tap <b>Yes, delete</b> to confirm. The box disappears for everyone. Changed your mind? Settings → Recent box changes → Undo. To keep the samples, merge the box into another one instead.'],
   ['How do I delete one product from a box?','Open the box, find the product (the box has its own search field), and tap <b>Delete</b> on its row. The app asks “Are you sure?”. The product disappears for everyone. Changed your mind? Tap <b>Restore</b> on that row. Use <b>Pulled</b> instead when the product moved to another box. To delete many at once, tick the boxes in the first column (the top box selects everything shown) and tap <b>Delete selected</b>. After deleting, tap <b>Refresh</b> in the box window to hide the deleted products and see only what is left (tap <b>Show deleted</b> to bring the list back). When you are sure, tap <b>Commit N deleted</b> to make the deletions final: those products will not show in that box again and cannot be restored. (Settings has <b>Commit all deletions</b> for every box at once.)'],
   ['How do I add a note to a product?','Open the box and tap <b>+ Note</b> on the product’s row, type your note and tap <b>Save</b> (or press Enter). Tap <b>Edit</b> to change it, or <b>Delete</b> inside the editor to remove it. Notes are shared with everyone, the box search also finds words inside notes, and the Excel export includes them. A note stays with that sample even if you move it to another box.'],
@@ -1159,6 +1161,7 @@ const HELP={
   ['¿Cómo cambio el número de una caja?','Abre la caja y toca <b>Change number</b>, escribe el número nuevo y Apply. Todas sus muestras se van con ella. Si escribes el número de otra caja, se juntan. Se puede deshacer en Settings.'],
   ['¿Cómo deshago mi último cambio?','Toca <b>Undo</b> (arriba a la derecha, o en la ventana de cualquier caja) o presiona <b>Ctrl+Z</b>. Revierte tu último cambio: borrar, pull, juntar cajas, nota, marcar llena, etc. Toca otra vez para retroceder más (hasta 30 pasos mientras la página siga abierta). Solo deshace <b>tus propios</b> cambios en este dispositivo y no puede deshacer la importación de una hoja nueva. ¿Te arrepentiste de deshacer? Toca <b>Redo</b> (o Ctrl+Y) para volver a hacerlo. Un cambio nuevo borra el historial de rehacer.'],
   ['¿Qué es “Sheet changes”? (versión TEST)','En la versión TEST, tus cambios de cajas (renumerar, juntar, borrar, mover) son un borrador. Toca <b>Sheet changes</b> para ver qué celdas de Sample Location cambiarían y luego <b>Write … to the Google Sheet</b> (pide la contraseña y una confirmación). Solo se cambia la columna Sample Location, cada valor anterior se guarda y <b>Revert</b> deshace todo un lote.'],
+  ['¿Qué es “Reconcile”? (versión TEST)','Reconcile compara la app con el conteo en papel del técnico de calidad. Lee una lista (caja, trabajo, artículo, estado) hecha de las fotos: marcado = está, casilla vacía = no está en la caja, escrito a mano = encontrado en la caja pero no listado. Luego muestra lo que haría: borrar los que no están, mover los que la hoja pone en otra caja y agregar solo en la app los que nunca se registraron. No pasa nada hasta que toques <b>Add to my draft</b>, y nada llega a la hoja de Google hasta que lo confirmes en <b>Sheet changes</b>.'],
   ['¿Cómo borro una caja?','Abre la caja y toca <b>Delete box</b>. La app pregunta “¿Estás seguro?” y dice cuántas muestras tiene. Toca <b>Yes, delete</b> para confirmar. La caja desaparece para todos. ¿Te arrepentiste? Settings → Recent box changes → Undo. Para conservar las muestras, junta la caja con otra.'],
   ['¿Cómo borro un solo producto de una caja?','Abre la caja, busca el producto (la caja tiene su propio campo de búsqueda) y toca <b>Delete</b> en su fila. La app pregunta “¿Estás seguro?”. El producto desaparece para todos. ¿Te arrepentiste? Toca <b>Restore</b> en esa fila. Usa <b>Pulled</b> cuando el producto se movió a otra caja. Para borrar varios a la vez, marca las casillas de la primera columna (la de arriba selecciona todo lo que se ve) y toca <b>Delete selected</b>. Después de borrar, toca <b>Refresh</b> en la ventana de la caja para ocultar los productos borrados y ver solo los que quedan (toca <b>Show deleted</b> para verlos otra vez). Cuando estés seguro, toca <b>Commit N deleted</b> para dejar los borrados como definitivos: esos productos no volverán a aparecer en esa caja y no se pueden restaurar. (En Settings, <b>Commit all deletions</b> lo hace para todas las cajas.)'],
   ['¿Cómo agrego una nota a un producto?','Abre la caja y toca <b>+ Note</b> en la fila del producto, escribe tu nota y toca <b>Save</b> (o presiona Enter). Toca <b>Edit</b> para cambiarla o <b>Delete</b> dentro del editor para quitarla. Las notas las ve todo el mundo, la búsqueda de la caja también encuentra palabras de las notas y el Excel las incluye. La nota se queda con esa muestra aunque la muevas a otra caja.'],
@@ -1194,6 +1197,7 @@ const IC={
   stylus:'<path d="M4 20l1-4L16.5 4.5a2 2 0 0 1 3 3L8 19l-4 1z"/><path d="M14 7l3 3"/>',
   knot:'<circle cx="9" cy="12" r="5"/><circle cx="15" cy="12" r="5"/>',
   dup:'<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
+  check:'<path d="M5 12l4 4 10-10"/><rect x="3" y="3" width="18" height="18" rx="3"/>',
   write:'<path d="M4 20l1-4L16.5 4.5a2 2 0 0 1 3 3L8 19l-4 1z"/><path d="M4 20h16"/>',
   sheet:'<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16M10 4v16"/>',
   gear:'<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/>'
@@ -1343,6 +1347,78 @@ async function openSheetChanges(note){
   }catch(e){ $('swlog').textContent='Could not load the log.'; }
 }
 if(WRITER_URL){ const sbtn=document.getElementById('sheetBtn'); if(sbtn){ sbtn.hidden=false; sbtn.onclick=()=>openSheetChanges(); } setInterval(sheetBadge,1500); }
+
+/* ---------- reconcile with the paper count ----------
+   Input: a list made from the QA tech's paperwork: box, job, item, status  where status is
+     in    = box ticked (physically there)          out   = box empty (NOT in this box)
+     extra = handwritten product found in this box but not on the printed list
+   Output: a DRAFT only (deletes, moves, app-only additions). Nothing reaches the Google Sheet until you review and
+   confirm it in "Sheet changes". */
+function reconParse(text){
+  const out=[]; let bad=0;
+  text.split(/\r?\n/).forEach((ln,i)=>{
+    const t=ln.trim(); if(!t) return;
+    const c=t.split(',').map(s=>s.trim().replace(/^"|"$/g,''));
+    if(i===0&&/^box$/i.test(c[0])) return;                               // header row
+    const n=normLoc(c[0]), st=String(c[3]||'').toLowerCase();
+    const status=/^(in|ticked|yes|present)$/.test(st)?'in':/^(out|empty|no|missing)$/.test(st)?'out':/^(extra|found|added)$/.test(st)?'extra':'';
+    if(!n.box||!c[2]||!status){ bad++; return; }
+    out.push({box:n.box,series:n.series||'Box',job:String(c[1]||'').replace(/^0+(?=\d)/,''),item:c[2],status});
+  });
+  return {lines:out,bad};
+}
+function reconPlan(lines){
+  const E=effRows().filter(r=>!isPulled(r)&&r.item), used=new Set();
+  const plan={confirmed:0,del:[],move:[],add:[],amb:[],miss:[]};
+  const find=(l,box)=>{ const c=E.filter(r=>r.item===l.item&&r.box===box&&!used.has(r.k)); return (l.job&&c.find(r=>r.job===l.job))||c[0]||null; };
+  ['in','out','extra'].forEach(stat=>lines.filter(l=>l.status===stat).forEach(l=>{
+    if(stat==='in'){ const r=find(l,l.box); if(r){ used.add(r.k); plan.confirmed++; } else plan.miss.push({l,why:'ticked on paper, but the app has no such product in '+l.box}); }
+    else if(stat==='out'){ const r=find(l,l.box); if(r){ used.add(r.k); plan.del.push({l,r}); } else plan.miss.push({l,why:'empty box on paper, but the app has no such product in '+l.box}); }
+    else { const here=find(l,l.box); if(here){ used.add(here.k); plan.confirmed++; return; }
+      const el=E.filter(r=>r.item===l.item&&r.box!==l.box&&!used.has(r.k));
+      if(!el.length) plan.add.push({l});
+      else if(el.length===1){ used.add(el[0].k); plan.move.push({l,r:el[0]}); }
+      else plan.amb.push({l,cands:el}); } }));
+  return plan;
+}
+function openReconcile(){
+  curBox=null; $('dbody').onchange=null; $('dbody').onclick=null; $('dctl').innerHTML='';
+  $('dt').textContent='Reconcile with the paper count';
+  $('dbody').innerHTML=`<p class="sub">Load the list made from your QA tech's paperwork (box, job, item, status). I turn the photos into this file. The app shows what it would do and changes nothing until you press <b>Add to my draft</b>. Then review everything in <b>Sheet changes</b>.</p>
+    <p><input type="file" id="recfile" accept=".csv,.txt"></p>
+    <p><textarea id="rectxt" rows="4" placeholder="…or paste the lines here:&#10;Box 5,41465,107100,in&#10;Box 5,40965,108924,out&#10;Box 5,,115417,extra" style="width:100%;font-family:var(--mono)"></textarea></p>
+    <p><button class="pri" id="reccheck">Check it</button></p><div id="recout"></div>`;
+  if(!$('dlg').open) $('dlg').showModal();
+  $('recfile').onchange=async e=>{ const f=e.target.files[0]; if(f) $('rectxt').value=await f.text(); };
+  $('reccheck').onclick=()=>{
+    const {lines,bad}=reconParse($('rectxt').value), el=$('recout');
+    if(!lines.length){ el.innerHTML='<p class="sub" style="color:var(--danger)">No usable lines found.</p>'; return; }
+    const P=reconPlan(lines), boxes=[...new Set(lines.map(l=>l.box))].join(', ');
+    const cut=(arr,fn,n=40)=>arr.slice(0,n).map(fn).join('')+(arr.length>n?`<div class="sub">…and ${arr.length-n} more</div>`:'');
+    const row=(a,b)=>`<div class="sug"><span style="font-family:var(--mono)">${a}</span><span class="sub">${b}</span></div>`;
+    el.innerHTML=`<h4 style="font:600 20px var(--serif);margin:10px 0 4px">${esc(boxes)} · ${lines.length} lines${bad?` (${bad} unreadable skipped)`:''}</h4>
+      <div class="sug"><b>Confirmed present</b><span class="sub">${P.confirmed} (no change)</span></div>
+      <details open><summary><b>Not in the box → delete (${P.del.length})</b></summary>${cut(P.del,x=>row(esc(x.l.item),esc(x.l.box)+' · job '+esc(x.l.job||'-')))}</details>
+      <details open><summary><b>Found here, sheet says another box → move (${P.move.length})</b></summary>${cut(P.move,x=>row(esc(x.l.item),esc(x.r.box)+' &rarr; '+esc(x.l.box)))}</details>
+      <details open><summary><b>Found here, not in the app → add, app only (${P.add.length})</b></summary>${cut(P.add,x=>row(esc(x.l.item),'new in '+esc(x.l.box)))}</details>
+      <details open><summary><b>Found here, but the app has it in several boxes → you choose (${P.amb.length})</b></summary>${P.amb.map((x,i)=>`<div class="sug"><span style="font-family:var(--mono)">${esc(x.l.item)} → ${esc(x.l.box)}</span><select data-amb="${i}"><option value="-1">Don't move (decide later)</option>${x.cands.map((c,j)=>`<option value="${j}">Move the one in ${esc(c.box)} (${esc(fdate(c.ts))})</option>`).join('')}<option value="add">It's a new one: add (app only)</option></select></div>`).join('')}</details>
+      ${P.miss.length?`<details><summary><b>Doesn't match the app (${P.miss.length})</b></summary>${cut(P.miss,x=>row(esc(x.l.item)+' ('+x.l.status+')',esc(x.why)))}</details>`:''}
+      <p style="margin-top:14px"><button class="pri" id="recgo" ${(P.del.length+P.move.length+P.add.length+P.amb.length)?'':'disabled'}>Add to my draft</button></p><p id="recmsg" class="sub"></p>`;
+    $('recgo').onclick=()=>{
+      const at=Date.now(); let n={del:0,move:0,add:0};
+      P.del.forEach(x=>{ state.pulled[x.r.k]={from:x.r.box,to:DELD,at}; opPull(x.r.k); n.del++; });
+      P.move.forEach(x=>{ state.pulled[x.r.k]={from:x.r.box,to:x.l.box,at}; opPull(x.r.k); n.move++; });
+      const addOne=(l,i)=>{ const e={k:'m'+at+'-'+i+Math.random().toString(36).slice(2,5),box:l.box,series:l.series,ts:at,job:NOORIG,item:l.item,manual:true}; state.manual.push(e); op({op:'addManual',entry:e}); n.add++; };
+      P.add.forEach((x,i)=>addOne(x.l,i));
+      document.querySelectorAll('#recout [data-amb]').forEach(s=>{ const x=P.amb[+s.dataset.amb], v=s.value;
+        if(v==='add') addOne(x.l,'a'+s.dataset.amb); else if(v!=='-1'){ const c=x.cands[+v]; state.pulled[c.k]={from:c.box,to:x.l.box,at}; opPull(c.k); n.move++; } });
+      save(); render();
+      $('recmsg').innerHTML=`Added to your draft: <b>${n.del}</b> deletes, <b>${n.move}</b> moves, <b>${n.add}</b> app-only additions. Undo reverses it all in one step. <button class="sm pri" id="recsheet">Review in Sheet changes</button>`;
+      $('recgo').disabled=true; $('recsheet').onclick=()=>openSheetChanges();
+    };
+  };
+}
+if(WRITER_URL){ const rb=document.getElementById('reconBtn'); if(rb){ rb.hidden=false; rb.onclick=openReconcile; } }
 
 /* ---------- sync from the Google Sheet (read-only reader) ---------- */
 let sheetSyncing=false;
