@@ -78,6 +78,7 @@ function doImport(o){
   replaceAll('Pulls',  (o.pulled||[]).map(function(p){ return [p.k,p.from||'',p.to||'',p.at||'']; }));
   replaceAll('Manual', (o.manual||[]).map(function(m){ return [m.k,m.box,m.series||'Box',m.ts||'',m.job||'',m.item||'']; }));
   setConfig('stamp', o.stamp || Date.now());
+  setConfig('srcHash', o.srcHash || '');
   setConfig('ignored', JSON.stringify(o.ignored||{}).slice(0,40000));
 }
 
@@ -93,6 +94,7 @@ function readState(){
   return {
     cap: Number(cfg.cap)||100,
     stamp: Number(cfg.stamp)||null,
+    srcHash: String(cfg.srcHash||''),
     ignored: ign,
     boxMeta: meta,
     pulled: pulled,

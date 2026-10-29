@@ -360,6 +360,7 @@ button:disabled{opacity:.4;cursor:default;box-shadow:none}
     <div class="tools">
       <button id="undoBtn" disabled title="Nothing to undo yet"><span class="ico" data-ic="undo"></span><span class="lbl">Undo</span></button>
       <button id="redoBtn" disabled title="Nothing to redo"><span class="ico" data-ic="redo"></span><span class="lbl">Redo</span></button>
+      <button id="syncBtn" hidden title="Read the latest boxes from the Google Sheet"><span class="ico" data-ic="sheet"></span><span class="lbl">Sync sheet</span></button>
       <button id="updateBtn" title="Reload the newest version of the app"><span class="ico" data-ic="update"></span><span class="lbl">Update</span></button>
       <button id="themeBtn" title="Switch light / dark"><span class="ico" data-ic="moon"></span><span class="lbl">Dark</span></button>
       <button id="helpBtn" title="How to use this app"><span class="ico" data-ic="help"></span><span class="lbl">Help / FAQ</span></button>
@@ -368,7 +369,7 @@ button:disabled{opacity:.4;cursor:default;box-shadow:none}
     <div class="eyebrow">The Archive Vault</div>
     <h1>Sample Box Tracker</h1>
     <p class="tagline">Every reference sample, kept in its place.</p>
-    <div class="status"><span id="stamp"></span> <b id="sync" class="pill"></b></div>
+    <div class="status"><span id="stamp"></span> <span id="sheetStat"></span> <b id="sync" class="pill"></b></div>
   </header>
 
   <div id="drop"><div class="offer"><svg viewBox="0 0 32 32"><path d="M11 4h10M12 4c0 3-5 4-5 11 0 6 3 10 9 13 6-3 9-7 9-13 0-7-5-8-5-11"/><path d="M10 11h12"/></svg><div><b>Drop the sample sheet here</b><br><span class="sub">(.xlsx / .csv) or click to choose. Copy the same 4 columns as always &mdash; everything else is ignored.</span></div></div>
@@ -425,6 +426,8 @@ function save(){ try{ localStorage.setItem(LS, JSON.stringify(state)); }catch(e)
    idempotent write, and the page re-reads the shared data only when the server's version number moved.
    Idle polling is a tiny {v} reply (no sheet is opened server-side), at most once every 2 minutes per open tab. */
 const BACKEND_URL = 'https://script.google.com/macros/s/AKfycbwHG1fcnBDV5GWbEc--WLKuvC9GyyIYHSTUvbPWsJDCvUsEeOvd_jeK5KSBGA70OMBE/exec';
+// Live feed from the QA checklist Google Sheet (read-only reader). Empty = feature off. The TEST page sets this; the live app leaves it empty until you decide.
+const SOURCE_URL = '';
 const OB = 'sampleBoxTracker.outbox';
 let outbox = (()=>{ try{ return JSON.parse(localStorage.getItem(OB))||[]; }catch(e){ return []; } })();
 let flushing=false, polling=false, lastSync=null, syncErr=null;
@@ -459,7 +462,7 @@ async function poll(force){
     if(!j.unchanged && j.state){
       const s=j.state;
       state.cap=s.cap; state.stamp=s.stamp; state.ignored=s.ignored; state.boxMeta=s.boxMeta; state.pulled=s.pulled;
-      state.rows=s.rows; state.manual=s.manual; state.moves=s.moves||[];
+      state.rows=s.rows; state.manual=s.manual; state.moves=s.moves||[]; if('srcHash' in s) state.srcHash=s.srcHash;
       if('dismissed' in s){
         const localD=state.dismissed||{}; state.dismissed=Object.assign({},s.dismissed);
         if(!serverDismiss){ serverDismiss=true; for(const k in localD) if(!s.dismissed[k]){ state.dismissed[k]=localD[k]; op({op:'dismissDup',item:k,at:localD[k].at,n:localD[k].n}); } }
@@ -519,7 +522,7 @@ function findCol(hdr, names){
   for(let i=0;i<hdr.length;i++) if(names.includes(norm(hdr[i]))) return i;
   return -1;
 }
-function ingest(aoa){
+function ingest(aoa,opts){ opts=opts||{};
   // find header row (within the first 10 rows)
   let hi=-1, c;
   for(let r=0;r<Math.min(10,aoa.length);r++){
@@ -543,7 +546,7 @@ function ingest(aoa){
     rows.push({k:(d?d.getTime():'')+'|'+job+'|'+item, box:n.box, series:n.series||'Box', ts:d?d.getTime():null, job, item});
   }
   if(!rows.length) throw new Error('No sample boxes found in that file, so nothing was changed.');
-  if(BACKEND_URL && state.rows.length && !confirm(`This replaces the shared sample data for everyone with ${rows.length} rows from this file. Continue?`)) return;
+  if(!opts.noConfirm && BACKEND_URL && state.rows.length && !confirm(`This replaces the shared sample data for everyone with ${rows.length} rows from this file. Continue?`)) return;
   state.rows=rows; state.ignored=ignored; state.stamp=Date.now();
   // The sheet is the source of truth: drop pulls whose row is gone or now sits in a different box
   // (you relabeled it in the sheet), and manual entries the sheet now already contains.
@@ -555,7 +558,8 @@ function ingest(aoa){
   const have=new Set(rows.filter(r=>r.item).map(r=>r.item+'|'+r.job+'|'+resolveBox(r.box,r.ts)));
   state.manual=state.manual.filter(x=>!(x.item&&have.has(x.item+'|'+x.job+'|'+resolveBox(x.box,x.ts))));
   save(); render();
-  op({op:'import',rows,ignored,stamp:state.stamp,
+  if(opts.srcHash!==undefined) state.srcHash=opts.srcHash;
+  op({op:'import',rows,ignored,stamp:state.stamp, srcHash:state.srcHash||'',
       pulled:Object.keys(state.pulled).map(k=>Object.assign({k},state.pulled[k])), manual:state.manual});
 }
 async function readFile(f){
@@ -1184,6 +1188,7 @@ const IC={
   stylus:'<path d="M4 20l1-4L16.5 4.5a2 2 0 0 1 3 3L8 19l-4 1z"/><path d="M14 7l3 3"/>',
   knot:'<circle cx="9" cy="12" r="5"/><circle cx="15" cy="12" r="5"/>',
   dup:'<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
+  sheet:'<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16M10 4v16"/>',
   gear:'<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/>'
 };
 const setIc=(el,name)=>{ el.innerHTML='<svg class="ic" viewBox="0 0 24 24">'+IC[name]+'</svg>'; };
@@ -1225,9 +1230,36 @@ $('settings').onclick=openSettings;
 $('addBtn').onclick=()=>openAdd('');
 $('mergeBtn').onclick=()=>openMerge([],'');
 $('dupBtn').onclick=()=>openDupes();
+/* ---------- sync from the Google Sheet (read-only reader) ---------- */
+let sheetSyncing=false;
+function sheetStatus(msg){ const el=document.getElementById('sheetStat'); if(el) el.textContent=msg||''; }
+async function syncFromSheet(auto){
+  if(!SOURCE_URL||sheetSyncing) return; sheetSyncing=true;
+  const btn=document.getElementById('syncBtn'); if(btn) btn.disabled=true; sheetStatus('Reading the Google Sheet…');
+  try{
+    const r=await fetch(SOURCE_URL+'?action=rows&cb='+Date.now()); const j=await r.json();
+    if(!j.ok) throw new Error(j.error||'The sheet reader returned an error');
+    if(!j.rows.length) throw new Error('The sheet returned no rows, so nothing was changed.');
+    try{ localStorage.setItem('sampleBoxTracker.srcCheck',String(Date.now())); }catch(e){}
+    if(j.hash===state.srcHash && state.rows.length){ sheetStatus('Sheet checked '+new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})+' · already up to date'); if(!auto) toast('Already up to date with the Google Sheet'); return; }
+    // keep existing row keys stable (older imports were off by a millisecond on some rows)
+    const alias=new Map(); state.rows.forEach(x=>{ if(x.ts!=null) alias.set(x.job+'|'+x.item+'|'+Math.round(x.ts/1000),x.ts); });
+    const aoa=[['Timestamp','Job_Number','Inventory_Item','Sample Location']].concat(j.rows.map(x=>{
+      const ms=x[1]; const ts=ms==null?null:(alias.get(x[2]+'|'+x[3]+'|'+Math.round(ms/1000))??ms);
+      return [ts==null?'':new Date(ts),x[2],x[3],x[4]]; }));
+    ingest(aoa,{noConfirm:true,srcHash:j.hash});
+    sheetStatus('Synced from the Google Sheet '+new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}));
+    toast('Synced '+state.rows.length+' products from the Google Sheet');
+  }catch(e){ sheetStatus('Could not read the Google Sheet'); if(!auto) toast('Sheet sync failed: '+(e.message||e)); }
+  finally{ sheetSyncing=false; if(btn) btn.disabled=false; }
+}
+if(SOURCE_URL){
+  const sb=document.getElementById('syncBtn'); if(sb){ sb.hidden=false; sb.onclick=()=>syncFromSheet(false); }
+}
+
 render();
 showSync();
-poll();
+poll().then(()=>{ let last=0; try{ last=+localStorage.getItem('sampleBoxTracker.srcCheck')||0; }catch(e){} if(SOURCE_URL&&Date.now()-last>30*60*1000) syncFromSheet(true); });
 setInterval(()=>{ if(!document.hidden) poll(); }, 120000);
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden) poll(); });
 window.addEventListener('online',()=>{ flush(); poll(); });
