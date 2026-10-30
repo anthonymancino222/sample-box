@@ -1370,17 +1370,18 @@ function reconParse(text){
 }
 function reconPlan(lines,whole){
   const E=effRows().filter(r=>!isPulled(r)&&r.item), used=new Set();
-  const plan={confirmed:0,del:[],move:[],add:[],amb:[],miss:[],rest:[]};
+  const plan={confirmed:0,del:[],move:[],add:[],amb:[],miss:[],rest:[],keep:[]};
+  const bx={}; E.forEach(r=>{ (bx[r.item]=bx[r.item]||new Set()).add(r.box); }); const multi=new Set(Object.keys(bx).filter(i=>bx[i].size>1));   // a product the app has in several boxes is never deleted or moved here
   const find=(l,box)=>{ const c=E.filter(r=>r.item===l.item&&r.box===box&&!used.has(r.k)); return (l.job&&c.find(r=>r.job===l.job))||c[0]||null; };
   ['in','out','extra'].forEach(stat=>lines.filter(l=>l.status===stat).forEach(l=>{
     if(stat==='in'){ const r=find(l,l.box); if(r){ used.add(r.k); plan.confirmed++; } else plan.miss.push({l,why:'ticked on paper, but the app has no such product in '+l.box}); }
-    else if(stat==='out'){ const r=find(l,l.box); if(r){ used.add(r.k); plan.del.push({l,r}); } else plan.miss.push({l,why:'empty box on paper, but the app has no such product in '+l.box}); }
+    else if(stat==='out'){ const r=find(l,l.box); if(r){ used.add(r.k); if(multi.has(l.item)) plan.keep.push({l,r}); else plan.del.push({l,r}); } else plan.miss.push({l,why:'empty box on paper, but the app has no such product in '+l.box}); }
     else { const here=find(l,l.box); if(here){ used.add(here.k); plan.confirmed++; return; }
       const el=E.filter(r=>r.item===l.item&&r.box!==l.box&&!used.has(r.k));
       if(!el.length) plan.add.push({l});
       else if(el.length===1){ used.add(el[0].k); plan.move.push({l,r:el[0]}); }
       else plan.amb.push({l,cands:el}); } }));
-  if(whole&&whole.size) E.filter(r=>whole.has(r.box)&&!used.has(r.k)).forEach(r=>plan.rest.push({r}));
+  if(whole&&whole.size) E.filter(r=>whole.has(r.box)&&!used.has(r.k)).forEach(r=>multi.has(r.item)?plan.keep.push({l:{item:r.item,box:r.box,job:r.job},r}):plan.rest.push({r}));
   return plan;
 }
 let recWhole=null;
@@ -1411,6 +1412,7 @@ function openReconcile(){
       <details open><summary><b>Found here, sheet says another box → move (${P.move.length})</b></summary>${cut(P.move,x=>row(esc(x.l.item),esc(x.r.box)+' &rarr; '+esc(x.l.box)))}</details>
       <details open><summary><b>Found here, not in the app → add, app only (${P.add.length})</b></summary>${cut(P.add,x=>row(esc(x.l.item),'new in '+esc(x.l.box)))}</details>
       <details open><summary><b>Found here, but the app has it in several boxes → you choose (${P.amb.length})</b></summary>${P.amb.map((x,i)=>`<div class="sug"><span style="font-family:var(--mono)">${esc(x.l.item)} → ${esc(x.l.box)}</span><select data-amb="${i}"><option value="-1">Don't move (decide later)</option>${x.cands.map((c,j)=>`<option value="${j}">Move the one in ${esc(c.box)} (${esc(fdate(c.ts))})</option>`).join('')}<option value="add">It's a new one: add (app only)</option></select></div>`).join('')}</details>
+      ${P.keep.length?`<details><summary><b>Kept as they are: the product is in several boxes (${P.keep.length})</b></summary>${cut(P.keep,x=>row(esc(x.r.item),esc(x.r.box)),60)}</details>`:''}
       ${P.miss.length?`<details><summary><b>Doesn't match the app (${P.miss.length})</b></summary>${cut(P.miss,x=>row(esc(x.l.item)+' ('+x.l.status+')',esc(x.why)))}</details>`:''}
       <p style="margin-top:14px"><button class="pri" id="recgo" ${(P.del.length+P.rest.length+P.move.length+P.add.length+P.amb.length)?'':'disabled'}>Add to my draft</button></p><p id="recmsg" class="sub"></p>`;
     el.querySelectorAll('[data-whole]').forEach(c=>c.onchange=()=>{ c.checked?recWhole.add(c.dataset.whole):recWhole.delete(c.dataset.whole); $('reccheck').click(); });
