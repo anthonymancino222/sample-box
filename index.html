@@ -1355,17 +1355,18 @@ if(WRITER_URL){ const sbtn=document.getElementById('sheetBtn'); if(sbtn){ sbtn.h
    Output: a DRAFT only (deletes, moves, app-only additions). Nothing reaches the Google Sheet until you review and
    confirm it in "Sheet changes". */
 function reconParse(text){
-  const out=[]; let bad=0;
+  const out=[], partial=new Set(); let bad=0;
   text.split(/\r?\n/).forEach((ln,i)=>{
     const t=ln.trim(); if(!t) return;
     const c=t.split(',').map(s=>s.trim().replace(/^"|"$/g,''));
     if(i===0&&/^box$/i.test(c[0])) return;                               // header row
     const n=normLoc(c[0]), st=String(c[3]||'').toLowerCase();
-    const status=/^(in|ticked|yes|present)$/.test(st)?'in':/^(out|empty|no|missing)$/.test(st)?'out':/^(extra|found|added)$/.test(st)?'extra':'';
+    const status=/^(in|ticked|yes|present)$/.test(st)?'in':/^(out|empty|no|missing)$/.test(st)?'out':/^(extra|found|added)$/.test(st)?'extra':/^(partial|incomplete)$/.test(st)?'partial':'';
     if(!n.box||!c[2]||!status){ bad++; return; }
+    if(status==='partial'){ partial.add(n.box); return; }
     out.push({box:n.box,series:n.series||'Box',job:String(c[1]||'').replace(/^0+(?=\d)/,''),item:c[2],status});
   });
-  return {lines:out,bad};
+  return {lines:out,bad,partial:[...partial]};
 }
 function reconPlan(lines,whole){
   const E=effRows().filter(r=>!isPulled(r)&&r.item), used=new Set();
@@ -1395,16 +1396,18 @@ function openReconcile(){
   if(!$('dlg').open) $('dlg').showModal();
   $('recfile').onchange=async e=>{ const f=e.target.files[0]; if(f) $('rectxt').value=await f.text(); };
   $('reccheck').onclick=()=>{
-    const {lines,bad}=reconParse($('rectxt').value), el=$('recout');
+    const {lines,bad,partial}=reconParse($('rectxt').value), el=$('recout');
     if(!lines.length){ el.innerHTML='<p class="sub" style="color:var(--danger)">No usable lines found.</p>'; return; }
     const cnt={}; lines.forEach(l=>cnt[l.box]=(cnt[l.box]||0)+1);
-    if(!recWhole) recWhole=new Set([Object.keys(cnt).sort((a,b)=>cnt[b]-cnt[a])[0]]);
+    const paperN={}, appN={}; lines.forEach(l=>{ if(l.status!=='extra') paperN[l.box]=(paperN[l.box]||0)+1; });
+    effRows().filter(r=>!isPulled(r)&&r.item).forEach(r=>{ appN[r.box]=(appN[r.box]||0)+1; });
+    if(!recWhole) recWhole=new Set(Object.keys(cnt).filter(b=>!partial.includes(b)&&(appN[b]||0)<=(paperN[b]||0)+3));
     const P=reconPlan(lines,recWhole), boxes=[...new Set(lines.map(l=>l.box))].join(', ');
     const cut=(arr,fn,n=40)=>arr.slice(0,n).map(fn).join('')+(arr.length>n?`<div class="sub">…and ${arr.length-n} more</div>`:'');
     const row=(a,b)=>`<div class="sug"><span style="font-family:var(--mono)">${a}</span><span class="sub">${b}</span></div>`;
     el.innerHTML=`<h4 style="font:600 20px var(--serif);margin:10px 0 4px">${esc(boxes)} · ${lines.length} lines${bad?` (${bad} unreadable skipped)`:''}</h4>
       <p class="sub">Tick a box only if this paper covers <b>everything</b> physically in it. Then every other entry the app has in that box is deleted.</p>
-      <p>${Object.keys(cnt).map(b=>`<label style="margin-right:14px"><input type="checkbox" data-whole="${esc(b)}" ${recWhole.has(b)?'checked':''}> ${esc(b)} is complete</label>`).join('')}</p>
+      <p>${Object.keys(cnt).map(b=>partial.includes(b)?`<span class="sub" style="margin-right:14px;display:inline-block">${esc(b)}: paper incomplete (page missing)</span>`:`<label style="margin-right:14px;display:inline-block"><input type="checkbox" data-whole="${esc(b)}" ${recWhole.has(b)?'checked':''}> ${esc(b)} is complete <span class="sub">(paper ${paperN[b]||0} · app ${appN[b]||0})</span></label>`).join('')}</p>
       <div class="sug"><b>Confirmed present</b><span class="sub">${P.confirmed} (no change)</span></div>
       <details open><summary><b>Not in the box → delete (${P.del.length})</b></summary>${cut(P.del,x=>row(esc(x.l.item),esc(x.l.box)+' · job '+esc(x.l.job||'-')))}</details>
       ${P.rest.length?`<details open><summary><b>Not on the paper at all → delete (${P.rest.length})</b></summary>${cut(P.rest,x=>row(esc(x.r.item),esc(x.r.box)+' · job '+esc(x.r.job||'-')),60)}</details>`:''}
