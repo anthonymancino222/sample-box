@@ -335,11 +335,37 @@ button.sm{padding:4px 12px;font-size:12px}
 .noteact{display:flex;gap:6px;flex-wrap:wrap}
 td.nt{min-width:200px}
 dialog{width:min(920px,96vw)}
+#recfile,#rectxt{max-width:100%;box-sizing:border-box}
 .dh{position:relative;padding-right:88px;min-height:72px;box-sizing:border-box}
 #dclose{position:absolute;top:8px;right:16px;width:56px;height:56px;min-width:0;padding:0;margin:0;border-radius:50%;display:grid;place-items:center;border:3px solid var(--ink);background:var(--card);color:var(--ink);cursor:pointer;box-sizing:border-box;line-height:0}
 #dclose svg{display:block}
 #dclose:hover{background:var(--danger);border-color:var(--danger);color:#fff}
-@media(max-width:560px){.dh{padding-right:76px;min-height:64px}#dclose{width:48px;height:48px;right:12px}#dclose svg{width:24px;height:24px}}
+@media(max-width:560px){.dh{padding-right:16px;min-height:64px}.dh h3{padding-right:64px;min-height:48px;box-sizing:border-box;display:flex;align-items:center}#dclose{width:48px;height:48px;right:12px}#dclose svg{width:24px;height:24px}
+  /* box popup header: title, then Undo/Redo, then the controls in an even 2-column grid */
+  #dctl{order:5;flex:1 1 100%;min-width:0}
+  #dctl:has(#dloc){display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  #dctl:has(#dloc)>*{margin:0;min-width:0;width:100%;box-sizing:border-box}
+  #dctl:has(#dloc) label{display:flex;align-items:center;gap:8px}
+  #dctl:has(#dloc) label input{width:auto!important;flex:1;min-width:0}
+  .dh h3{flex:1 1 100%}
+  #dctl:has(#dloc)>button{padding-inline:8px;white-space:nowrap}}
+/* box popup list: one card per product instead of a table that is cut off at the right edge (phones and tablets) */
+@media(max-width:900px){
+  #dbody:has(.bsticky) table,#dbody:has(.bsticky) tbody,#dbody:has(.bsticky) tr,#dbody:has(.bsticky) td,#dbody:has(.bsticky) thead{display:block}
+  #dbody:has(.bsticky) th:not(:first-child){display:none}
+  #dbody:has(.bsticky) th:first-child{display:flex;align-items:center;gap:12px;width:auto;padding:8px 0}
+  #dbody:has(.bsticky) th:first-child::after{content:"Select all";font:600 12px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+  #dbody:has(.bsticky) tbody tr{display:grid;grid-template-columns:auto 1fr auto;gap:8px 16px;align-items:center;padding:12px 0;border-bottom:1px solid var(--line)}
+  #dbody:has(.bsticky) td:nth-child(1){grid-area:1/1}
+  #dbody:has(.bsticky) td:nth-child(3){grid-area:1/2;font:600 16px var(--mono)}
+  #dbody:has(.bsticky) td:nth-child(2){grid-area:1/3}
+  #dbody:has(.bsticky) td:nth-child(4){grid-area:2/1/3/-1;display:flex;align-items:center;gap:12px}
+  #dbody:has(.bsticky) tbody td{padding:0;border:0;min-width:0}
+  #dbody:has(.bsticky) td:nth-child(2){display:flex;align-items:center;gap:8px}
+  #dbody:has(.bsticky) td:nth-child(2)::after{content:"Pulled";font-size:12px;color:var(--mute)}
+  #dbody:has(.bsticky) td.np{grid-column:1/-1}
+  #dbody:has(.bsticky) td.nt{min-width:0}
+  #dbody:has(.bsticky) td.np input[data-to]{min-width:0!important}}
 #dbody td:nth-child(3),#dbody td:nth-child(4){white-space:nowrap}
 td.sel,th:first-child{width:34px}
 .bulk{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 14px;margin:0 0 12px;border:1px solid var(--danger);border-radius:10px;background:var(--hotbg)}
