@@ -1518,7 +1518,7 @@ async function syncFromSheet(auto){
     if(!j.ok) throw new Error(j.error||'The sheet reader returned an error');
     if(!j.rows.length) throw new Error('The sheet returned no rows, so nothing was changed.');
     try{ localStorage.setItem('sampleBoxTrackerTEST.srcCheck',String(Date.now())); }catch(e){}
-    if(j.hash===state.srcHash && state.rows.length){ sheetStatus('Sheet checked '+new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})+' · already up to date'); if(!auto) toast('Already up to date with the Google Sheet'); return; }
+    if(j.hash===state.srcHash && state.rows.length && state.rows.some(x=>x.id)){ sheetStatus('Sheet checked '+new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})+' · already up to date'); if(!auto) toast('Already up to date with the Google Sheet'); return; }
     // keep existing row keys stable (older imports were off by a millisecond on some rows)
     const alias=new Map(); state.rows.forEach(x=>{ if(x.ts!=null) alias.set(x.job+'|'+x.item+'|'+Math.round(x.ts/1000),x.ts); });
     const aoa=[['Timestamp','Job_Number','Inventory_Item','Sample Location','Sheet ID','Sheet Row']].concat(j.rows.map(x=>{

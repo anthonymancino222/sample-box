@@ -12,7 +12,7 @@
 var TAB = 'ChecklistTemplate_Sample';
 var TARGET = 'Sample Location';
 var MAX_CHANGES = 1500;
-var PASS_HASH = 'c1c92f1c857767db838157e4c08d5bf01eb0a8c0319327470ebdeb164006cda2';
+var PASS_HASH = '7f8d5ec09b7bdf8d7e6a31048dc5fd808a1ef1fecb6f8eebbf83cb897075c5d8';
 
 function doGet(e) { return out({ ok: true, role: 'writer' }); }
 
