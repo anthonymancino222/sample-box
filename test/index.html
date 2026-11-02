@@ -363,6 +363,7 @@ button:disabled{opacity:.4;cursor:default;box-shadow:none}
       <button id="undoBtn" disabled title="Nothing to undo yet"><span class="ico" data-ic="undo"></span><span class="lbl">Undo</span></button>
       <button id="redoBtn" disabled title="Nothing to redo"><span class="ico" data-ic="redo"></span><span class="lbl">Redo</span></button>
       <button id="reconBtn" hidden title="Compare the app with the QA tech's paper count"><span class="ico" data-ic="check"></span><span class="lbl">Reconcile</span></button>
+      <button id="throwBtn" hidden title="List which products to physically take out of which box, based on your deletes and moves"><span class="ico" data-ic="write"></span><span class="lbl">Throw-away list</span></button>
       <button id="sheetBtn" hidden title="See which Sample Location cells would change in the Google Sheet, and write them"><span class="ico" data-ic="write"></span><span class="lbl">Sheet changes</span></button>
       <button id="syncBtn" hidden title="Read the latest boxes from the Google Sheet"><span class="ico" data-ic="sheet"></span><span class="lbl">Sync sheet</span></button>
       <button id="updateBtn" title="Reload the newest version of the app"><span class="ico" data-ic="update"></span><span class="lbl">Update</span></button>
@@ -1403,6 +1404,7 @@ function openReconcile(){
     const paperN={}, appN={}; lines.forEach(l=>{ if(l.status!=='extra') paperN[l.box]=(paperN[l.box]||0)+1; });
     effRows().filter(r=>!isPulled(r)&&r.item).forEach(r=>{ appN[r.box]=(appN[r.box]||0)+1; });
     if(!recWhole) recWhole=new Set(Object.keys(cnt).filter(b=>!partial.includes(b)&&(appN[b]||0)<=(paperN[b]||0)+3));
+    try{ localStorage.setItem(LS+'.paper',JSON.stringify(lines.filter(l=>l.status!=='out').map(l=>[l.box,l.item,l.job]))); }catch(e){}   // what is physically there, for the Throw-away list
     const P=reconPlan(lines,recWhole), boxes=[...new Set(lines.map(l=>l.box))].join(', ');
     const cut=(arr,fn,n=40)=>arr.slice(0,n).map(fn).join('')+(arr.length>n?`<div class="sub">…and ${arr.length-n} more</div>`:'');
     const row=(a,b)=>`<div class="sug"><span style="font-family:var(--mono)">${a}</span><span class="sub">${b}</span></div>`;
@@ -1434,6 +1436,43 @@ function openReconcile(){
   };
 }
 if(WRITER_URL){ const rb=document.getElementById('reconBtn'); if(rb){ rb.hidden=false; rb.onclick=openReconcile; } }
+
+/* ---------- throw-away list ----------
+   A product the paper says is physically in box X, but that you have since deleted from / moved out of box X in the app, must be
+   physically removed from X. "Keep in" = the box(es) the app still has it in. Read-only: changes nothing. */
+function throwAwayList(){
+  let paper=[]; try{ paper=JSON.parse(localStorage.getItem(LS+'.paper'))||[]; }catch(e){}
+  const all=effRows().filter(r=>r.item), live={}, gone={};
+  all.forEach(r=>{ const m=isPulled(r)?gone:live; (m[r.item]=m[r.item]||new Set()).add(r.box); });
+  const seen=new Set(), out=[];
+  paper.forEach(([box,item,job])=>{
+    const n=normLoc(box).box||box, key=n+'|'+item;
+    if(seen.has(key)) return;
+    if(!(gone[item]&&gone[item].has(n))||(live[item]&&live[item].has(n))) return;      // still in this box in the app -> stays
+    seen.add(key);
+    const jobs=[...new Set(all.filter(r=>r.item===item&&r.box===n&&isPulled(r)&&!r.from).map(r=>r.job).filter(j=>j&&j!==NOORIG))].join(' / ');
+    out.push({item,box:n,job:jobs||job||'',keep:live[item]?[...live[item]].sort().join(', '):'(deleted everywhere: not kept in any box)'});
+  });
+  const bn=b=>{ const x=normLoc(b); return [x.series==='Box'?0:1,parseInt(String(x.box).replace(/\D+/g,''),10)||0]; };
+  out.sort((a,b)=>{ const x=bn(a.box),y=bn(b.box); return x[0]-y[0]||x[1]-y[1]||String(a.item).localeCompare(String(b.item),undefined,{numeric:true}); });
+  return {out,havePaper:paper.length>0};
+}
+function openThrowAway(){
+  curBox=null; $('dbody').onchange=null; $('dbody').onclick=null; $('dctl').innerHTML='';
+  $('dt').textContent='Throw-away list';
+  const {out,havePaper}=throwAwayList(), by={}; out.forEach(x=>(by[x.box]=by[x.box]||[]).push(x));
+  const csv=()=>'Product,Throw away from,Job,Keep in\r\n'+out.map(x=>[x.item,x.box,x.job,x.keep].map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\r\n');
+  $('dbody').innerHTML=`<p class="sub">Products the paper count says are <b>physically</b> in a box, but that you have deleted or moved out of that box here. Take each one out of the box named, so the shelves match the app. This list only reads; it changes nothing.</p>
+    ${havePaper?'':'<p class="sub" style="color:var(--danger)">No paper count is loaded on this device yet. Open <b>Reconcile</b>, load the CSV and tap <b>Check it</b> once; then come back here.</p>'}
+    <p><b>${out.length}</b> product${out.length===1?'':'s'} to take out of <b>${Object.keys(by).length}</b> box${Object.keys(by).length===1?'':'es'}.
+    <button class="sm pri" id="thdl" ${out.length?'':'disabled'}>Download (Excel)</button> <button class="sm" id="thcp" ${out.length?'':'disabled'}>Copy</button> <button class="sm" id="thpr" ${out.length?'':'disabled'}>Print</button></p>
+    ${Object.keys(by).map(b=>`<details open><summary><b>${esc(b)} · take out ${by[b].length}</b></summary>${by[b].map(x=>`<div class="sug"><span style="font-family:var(--mono)">${esc(x.item)}</span><span class="sub">job ${esc(x.job||'-')} · keep in ${esc(x.keep)}</span></div>`).join('')}</details>`).join('')}`;
+  if(!$('dlg').open) $('dlg').showModal();
+  $('thdl').onclick=()=>{ try{ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob(['﻿'+csv()],{type:'text/csv'})); a.download='throw_away_list.csv'; document.body.appendChild(a); a.click(); a.remove(); }catch(e){ alert('Could not download: '+e.message); } };
+  $('thcp').onclick=async()=>{ try{ await navigator.clipboard.writeText(csv()); $('thcp').textContent='Copied'; }catch(e){ alert('Could not copy.'); } };
+  $('thpr').onclick=()=>window.print();
+}
+if(WRITER_URL){ const tb=document.getElementById('throwBtn'); if(tb){ tb.hidden=false; tb.onclick=openThrowAway; } }
 
 /* ---------- sync from the Google Sheet (read-only reader) ---------- */
 let sheetSyncing=false;
