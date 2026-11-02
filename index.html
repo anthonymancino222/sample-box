@@ -336,10 +336,11 @@ button.sm{padding:4px 12px;font-size:12px}
 .noteact{display:flex;gap:6px;flex-wrap:wrap}
 td.nt{min-width:200px}
 dialog{width:min(920px,96vw)}
-.dh{position:relative;padding-right:84px}
-#dclose{position:absolute;top:10px;right:14px;width:56px;height:56px;min-width:0;padding:0;margin:0;border-radius:50%;font:400 44px/1 var(--sans);display:flex;align-items:center;justify-content:center;border:3px solid var(--ink);background:var(--card);color:var(--ink);cursor:pointer}
+.dh{position:relative;padding-right:88px;min-height:72px;box-sizing:border-box}
+#dclose{position:absolute;top:8px;right:16px;width:56px;height:56px;min-width:0;padding:0;margin:0;border-radius:50%;display:grid;place-items:center;border:3px solid var(--ink);background:var(--card);color:var(--ink);cursor:pointer;box-sizing:border-box;line-height:0}
+#dclose svg{display:block}
 #dclose:hover{background:var(--danger);border-color:var(--danger);color:#fff}
-@media(max-width:560px){.dh{padding-right:78px}#dclose{width:50px;height:50px;font-size:40px;right:12px}}
+@media(max-width:560px){.dh{padding-right:76px;min-height:64px}#dclose{width:48px;height:48px;right:12px}#dclose svg{width:24px;height:24px}}
 #dbody td:nth-child(3),#dbody td:nth-child(4){white-space:nowrap}
 td.sel,th:first-child{width:34px}
 .bulk{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 14px;margin:0 0 12px;border:1px solid var(--danger);border-radius:10px;background:var(--hotbg)}
@@ -419,7 +420,7 @@ button:disabled{opacity:.4;cursor:default;box-shadow:none}
 
 <div id="toast" class="toast" role="status" popover="manual"></div>
 <datalist id="boxlist"></datalist>
-<dialog id="dlg"><div class="dh"><h3 id="dt"></h3><span id="dctl"></span><button id="dundoBtn" class="sm" disabled>Undo</button><button id="dredoBtn" class="sm" disabled>Redo</button><button id="dclose" aria-label="Close" title="Close">&times;</button></div><div class="db" id="dbody"></div></dialog>
+<dialog id="dlg"><div class="dh"><h3 id="dt"></h3><span id="dctl"></span><button id="dundoBtn" class="sm" disabled>Undo</button><button id="dredoBtn" class="sm" disabled>Redo</button><button id="dclose" aria-label="Close" title="Close"><svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path d="M5 5L19 19M19 5L5 19" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg></button></div><div class="db" id="dbody"></div></dialog>
 
 <script>
 "use strict";
