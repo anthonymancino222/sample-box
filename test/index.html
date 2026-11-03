@@ -1039,34 +1039,38 @@ function pdfByBox(o){
   const cols=o.cols.map(c=>{ const w=c.w==='*'?CW-fixed:c.w, r={...c,w,x:cx}; cx+=w; return r; });
   const text=(x,y,s,sz,bold,gray)=>`BT ${gray?'0.35':'0'} g /F${bold?2:1} ${sz} Tf ${n2(x)} ${n2(y)} Td (${pe(s)}) Tj ET\n`;
   const line=(x1,y,x2,wd,g)=>`${g} G ${wd} w ${n2(x1)} ${n2(y)} m ${n2(x2)} ${n2(y)} l S\n`;
-  const pages=[];
+  const pages=[], GAP=24, HEAD=84; let page=null, y=0, blk=null;
+  const newPage=()=>{ page={blocks:[]}; pages.push(page); y=TOP; };
+  const newBlock=sec=>{ blk={sec,bt:y,items:[]}; page.blocks.push(blk); y-=HEAD; };
   o.sections.filter(s=>s.rows.length).forEach(sec=>{
     const rows=sec.rows.map(r=>{ const cl=r.cells.map((c,i)=>cols[i].check?[]:wrap(c,cols[i].w-2*PAD,cols[i].bold?11:10));
       const nl=r.note?wrap(r.note,cols[cols.findIndex(c=>c.w===CW-fixed)].w-2*PAD,9):[];
-      const lines=Math.max(1,...cl.map(a=>a.length))+0, h=Math.max(24,lines*12+12+nl.length*11);
+      const lines=Math.max(1,...cl.map(a=>a.length)), h=Math.max(24,lines*12+12+nl.length*11);
       return {r,cl,nl,h}; });
-    const head=64+20; let secPages=[], cur=null, y=0;
-    const newPage=()=>{ cur={sec,items:[]}; secPages.push(cur); y=TOP-head; };
-    newPage();
-    rows.forEach(it=>{ if(y-it.h<BOTTOM){ newPage(); } cur.items.push({...it,y}); y-=it.h; });
-    secPages.forEach((p,i)=>{ p.i=i+1; p.n=secPages.length; pages.push(p); });
+    if(!page||y-GAP-HEAD-rows[0].h<BOTTOM) newPage(); else y-=GAP;      // boxes follow each other with a gap; a new page only when the heading and first row do not fit
+    newBlock(sec);
+    rows.forEach(it=>{ if(y-it.h<BOTTOM){ newPage(); newBlock(sec); } blk.items.push({...it,y}); y-=it.h; });
   });
   if(!pages.length) return false;
-  const streams=pages.map(p=>{
-    let s=text(M,TOP-20,p.sec.name,20,true)+text(M,TOP-38,o.sub,10,false,true)+text(M,TOP-52,o.hint,9,false,true);
-    const hy=TOP-64-20+6;                       // header row text baseline
-    cols.forEach(c=>{ const lw=wid(c.h,9,true); s+=text(c.center||c.check?c.x+(c.w-lw)/2:c.x+PAD,hy,c.h,9,true); });
-    s+=line(M,TOP-64,W-M,1,'0');
-    s+=line(M,TOP-84,W-M,1,'0');
-    p.items.forEach(it=>{
-      cols.forEach((c,i)=>{
-        if(c.check){ s+=`0 G 0.8 w ${n2(c.x+(c.w-11)/2)} ${n2(it.y-17)} 11 11 re S\n`; return; }
-        it.cl[i].forEach((t,k)=>{ const sz=c.bold?11:10, tw=wid(t,sz,c.bold); s+=text(c.center?c.x+(c.w-tw)/2:c.x+PAD,it.y-15-k*12,t,sz,c.bold); });
+  const streams=pages.map((p,pi)=>{
+    let s='';
+    p.blocks.forEach(b=>{
+      const T=b.bt;
+      s+=text(M,T-20,b.sec.name,20,true)+text(M,T-38,o.sub,10,false,true)+text(M,T-52,o.hint,9,false,true);
+      const hy=T-64-20+6;                       // header row text baseline
+      cols.forEach(c=>{ const lw=wid(c.h,9,true); s+=text(c.center||c.check?c.x+(c.w-lw)/2:c.x+PAD,hy,c.h,9,true); });
+      s+=line(M,T-64,W-M,1,'0');
+      s+=line(M,T-84,W-M,1,'0');
+      b.items.forEach(it=>{
+        cols.forEach((c,i)=>{
+          if(c.check){ s+=`0 G 0.8 w ${n2(c.x+(c.w-11)/2)} ${n2(it.y-17)} 11 11 re S\n`; return; }
+          it.cl[i].forEach((t,k)=>{ const sz=c.bold?11:10, tw=wid(t,sz,c.bold); s+=text(c.center?c.x+(c.w-tw)/2:c.x+PAD,it.y-15-k*12,t,sz,c.bold); });
+        });
+        it.nl.forEach((t,k)=>{ const ci=cols.findIndex(c=>c.w===CW-fixed); s+=text(cols[ci].x+PAD,it.y-15-Math.max(...it.cl.map(a=>a.length))*12-k*11+1,t,9,false,true); });
+        s+=line(M,it.y-it.h,W-M,0.5,'0.7');
       });
-      it.nl.forEach((t,k)=>{ const ci=cols.findIndex(c=>c.w===CW-fixed); s+=text(cols[ci].x+PAD,it.y-15-Math.max(...it.cl.map(a=>a.length))*12-k*11+1,t,9,false,true); });
-      s+=line(M,it.y-it.h,W-M,0.5,'0.7');
     });
-    const f1=p.sec.name+' - page '+p.i+' of '+p.n, f2=o.footer, fw=wid(clean(f2),8);
+    const f1='Page '+(pi+1)+' of '+pages.length, f2=o.footer, fw=wid(clean(f2),8);
     s+=text(M,M-6,f1,8,false,true)+text(W-M-fw,M-6,f2,8,false,true);
     return s; });
   let pdf='%PDF-1.4\n', off=[]; const add=(id,body)=>{ off[id]=pdf.length; pdf+=id+' 0 obj\n'+body+'\nendobj\n'; };
