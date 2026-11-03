@@ -349,7 +349,12 @@ dialog{width:min(920px,96vw)}
   #dctl:has(#dloc) label{display:flex;align-items:center;gap:8px}
   #dctl:has(#dloc) label input{width:auto!important;flex:1;min-width:0}
   .dh h3{flex:1 1 100%}
-  #dctl:has(#dloc)>button{padding-inline:8px;white-space:nowrap}}
+  #dctl:has(#dloc)>button{padding-inline:8px;white-space:nowrap}
+  /* duplicates popup: filter and item # full width, then Excel | PDF side by side */
+  #dctl:has(#dupx){display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  #dctl:has(#dupx)>*{margin:0;min-width:0;width:100%!important;box-sizing:border-box}
+  #dctl:has(#dupx)>#dupf,#dctl:has(#dupx)>#dupq{grid-column:1/-1}
+  #dctl:has(#dupx)>button{padding-inline:8px;white-space:nowrap}}
 /* box popup list: one card per product instead of a table that is cut off at the right edge (phones and tablets) */
 @media(max-width:900px){
   #dbody:has(.bsticky) table,#dbody:has(.bsticky) tbody,#dbody:has(.bsticky) tr,#dbody:has(.bsticky) td,#dbody:has(.bsticky) thead{display:block}
@@ -1016,6 +1021,79 @@ function dupGroups(){
   return out;
 }
 function dupRemove(rows){ const at=Date.now(); rows.forEach(r=>{ state.pulled[r.k]={from:r.box,to:DELD,at}; opPull(r.k); }); save(); render(); }
+/* ---------- PDF export (no library: a plain text-only PDF, US Letter portrait, black on white, one box per page) ---------- */
+const HELV=[278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,333,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584];   // Helvetica widths, chars 32..126
+function boxNameSort(a,b){ const f=x=>{ const n=normLoc(x); return [n.series&&n.series!=='Box'?1:0,parseInt(String(n.box).replace(/\D+/g,''),10)||9999,String(n.box)]; }, p=f(a), q=f(b); return p[0]-q[0]||p[1]-q[1]||p[2].localeCompare(q[2]); }
+/* o = {title, sub, hint, footer, file, cols:[{h,w|'*',bold,center,check}], sections:[{name, rows:[{cells:[...], note}]}]} */
+function pdfByBox(o){
+  const W=612, H=792, M=36, CW=W-2*M, PAD=6, TOP=H-M, BOTTOM=M+14;
+  const clean=s=>String(s==null?'':s).normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[‘’]/g,"'").replace(/[“”]/g,'"').replace(/[–—]/g,'-').replace(/·/g,'-').replace(/[^\x20-\x7e]/g,'?');
+  const pe=s=>clean(s).replace(/[\\()]/g,'\\$&'), n2=v=>v.toFixed(2);
+  const wid=(s,sz,b)=>{ let t=0; for(const ch of s) t+=HELV[ch.charCodeAt(0)-32]||556; return t*sz/1000*(b?1.07:1); };
+  const wrap=(s,w,sz)=>{ const out=[]; let line=''; clean(s).split(' ').forEach(word=>{
+      while(wid(word,sz)>w){ let k=1; while(k<word.length&&wid(word.slice(0,k+1),sz)<=w) k++; if(line){ out.push(line); line=''; } out.push(word.slice(0,k)); word=word.slice(k); }
+      const t=line?line+' '+word:word; if(line&&wid(t,sz)>w){ out.push(line); line=word; } else line=t; });
+    if(line||!out.length) out.push(line); return out; };
+  const fixed=o.cols.reduce((a,c)=>a+(c.w==='*'?0:c.w),0); let cx=M;
+  const cols=o.cols.map(c=>{ const w=c.w==='*'?CW-fixed:c.w, r={...c,w,x:cx}; cx+=w; return r; });
+  const text=(x,y,s,sz,bold,gray)=>`BT ${gray?'0.35':'0'} g /F${bold?2:1} ${sz} Tf ${n2(x)} ${n2(y)} Td (${pe(s)}) Tj ET\n`;
+  const line=(x1,y,x2,wd,g)=>`${g} G ${wd} w ${n2(x1)} ${n2(y)} m ${n2(x2)} ${n2(y)} l S\n`;
+  const pages=[];
+  o.sections.filter(s=>s.rows.length).forEach(sec=>{
+    const rows=sec.rows.map(r=>{ const cl=r.cells.map((c,i)=>cols[i].check?[]:wrap(c,cols[i].w-2*PAD,cols[i].bold?11:10));
+      const nl=r.note?wrap(r.note,cols[cols.findIndex(c=>c.w===CW-fixed)].w-2*PAD,9):[];
+      const lines=Math.max(1,...cl.map(a=>a.length))+0, h=Math.max(24,lines*12+12+nl.length*11);
+      return {r,cl,nl,h}; });
+    const head=64+20; let secPages=[], cur=null, y=0;
+    const newPage=()=>{ cur={sec,items:[]}; secPages.push(cur); y=TOP-head; };
+    newPage();
+    rows.forEach(it=>{ if(y-it.h<BOTTOM){ newPage(); } cur.items.push({...it,y}); y-=it.h; });
+    secPages.forEach((p,i)=>{ p.i=i+1; p.n=secPages.length; pages.push(p); });
+  });
+  if(!pages.length) return false;
+  const streams=pages.map(p=>{
+    let s=text(M,TOP-20,p.sec.name,20,true)+text(M,TOP-38,o.sub,10,false,true)+text(M,TOP-52,o.hint,9,false,true);
+    const hy=TOP-64-20+6;                       // header row text baseline
+    cols.forEach(c=>{ const lw=wid(c.h,9,true); s+=text(c.center||c.check?c.x+(c.w-lw)/2:c.x+PAD,hy,c.h,9,true); });
+    s+=line(M,TOP-64,W-M,1,'0');
+    s+=line(M,TOP-84,W-M,1,'0');
+    p.items.forEach(it=>{
+      cols.forEach((c,i)=>{
+        if(c.check){ s+=`0 G 0.8 w ${n2(c.x+(c.w-11)/2)} ${n2(it.y-17)} 11 11 re S\n`; return; }
+        it.cl[i].forEach((t,k)=>{ const sz=c.bold?11:10, tw=wid(t,sz,c.bold); s+=text(c.center?c.x+(c.w-tw)/2:c.x+PAD,it.y-15-k*12,t,sz,c.bold); });
+      });
+      it.nl.forEach((t,k)=>{ const ci=cols.findIndex(c=>c.w===CW-fixed); s+=text(cols[ci].x+PAD,it.y-15-Math.max(...it.cl.map(a=>a.length))*12-k*11+1,t,9,false,true); });
+      s+=line(M,it.y-it.h,W-M,0.5,'0.7');
+    });
+    const f1=p.sec.name+' - page '+p.i+' of '+p.n, f2=o.footer, fw=wid(clean(f2),8);
+    s+=text(M,M-6,f1,8,false,true)+text(W-M-fw,M-6,f2,8,false,true);
+    return s; });
+  let pdf='%PDF-1.4\n', off=[]; const add=(id,body)=>{ off[id]=pdf.length; pdf+=id+' 0 obj\n'+body+'\nendobj\n'; };
+  add(1,'<< /Type /Catalog /Pages 2 0 R >>');
+  add(2,'<< /Type /Pages /Kids ['+pages.map((_,i)=>(6+2*i)+' 0 R').join(' ')+'] /Count '+pages.length+' >>');
+  add(3,'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
+  add(4,'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+  add(5,'<< /Title ('+pe(o.title)+') /Producer (Sample Box Tracker) >>');
+  streams.forEach((s,i)=>{ add(7+2*i,'<< /Length '+s.length+' >>\nstream\n'+s+'endstream'); add(6+2*i,'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 '+W+' '+H+'] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents '+(7+2*i)+' 0 R >>'); });
+  const count=6+2*streams.length, xr=pdf.length;
+  pdf+='xref\n0 '+count+'\n0000000000 65535 f \n'; for(let i=1;i<count;i++) pdf+=String(off[i]).padStart(10,'0')+' 00000 n \n';
+  pdf+='trailer\n<< /Size '+count+' /Root 1 0 R /Info 5 0 R >>\nstartxref\n'+xr+'\n%%EOF';
+  try{ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([pdf],{type:'application/pdf'})); a.download=o.file; document.body.appendChild(a); a.click(); a.remove(); }catch(e){ alert('Could not make the PDF: '+e.message); return false; }
+  return true;
+}
+function exportDupesPdf(list,filterLabel){
+  if(!list.length){ alert('Nothing to export for this filter.'); return; }
+  const by=new Map();
+  list.forEach(g=>{ g.boxes.forEach((rs,b)=>{
+    const others=[...g.boxes.entries()].filter(([x])=>x!==b).sort((p,q)=>q[1].length-p[1].length).map(([x,r])=>x+' ('+r.length+')').join(', ');
+    const nt=rs.map(r=>(noteOf(r)||{}).text).filter(Boolean)[0];
+    if(!by.has(b)) by.set(b,[]);
+    by.get(b).push({cells:[String(g.item),String(rs.length),others?'Also in: '+others:'All copies are in this box',''],note:nt?'Note: '+nt:''}); }); });
+  const sections=[...by.keys()].sort(boxNameSort).map(b=>({name:b,rows:by.get(b).sort((p,q)=>p.cells[0].localeCompare(q.cells[0],undefined,{numeric:true}))}));
+  const d=new Date(), ds=d.toISOString().slice(0,10);
+  pdfByBox({title:'Duplicate products by box',sub:'Duplicate products - '+filterLabel+' - '+list.length+' product'+(list.length===1?'':'s'),hint:'Find each product in this box. Tick Keep, or tick Remove and take the extra copies out of this box.',footer:'Sample Box Tracker - '+ds,file:'Duplicate products by box - '+ds+'.pdf',
+    cols:[{h:'Product #',w:84,bold:true},{h:'In this box',w:64,center:true},{h:'Where else',w:'*'},{h:'Keep',w:44,check:true},{h:'Remove',w:52,check:true}],sections});
+}
 function exportDupes(list){
   if(!list.length){ alert('Nothing to export for this filter.'); return; }
   const sum=[], ent=[];
@@ -1036,10 +1114,12 @@ function exportDupes(list){
   const list=all.filter(g=>pass(g)&&(!q||g.item.includes(q)));
   const shown=list.slice(0,dupState.show);
   $('dt').textContent='Duplicate products';
-  $('dctl').innerHTML=`<select id="dupf"><option value="todo">To review</option><option value="cross">In different boxes</option><option value="same">Several in one box</option><option value="reviewed">Marked reviewed</option><option value="all">Everything</option></select> <input id="dupq" placeholder="Item #" style="width:120px" value="${esc(dupState.q)}"> <button id="dupx">Export to Excel</button>`;
+  $('dctl').innerHTML=`<select id="dupf"><option value="todo">To review</option><option value="cross">In different boxes</option><option value="same">Several in one box</option><option value="reviewed">Marked reviewed</option><option value="all">Everything</option></select> <input id="dupq" placeholder="Item #" style="width:120px" value="${esc(dupState.q)}"> <button id="dupx">Export to Excel</button> <button id="dupp">Export PDF</button>`;
   $('dupf').value=f;
   $('dupx').onclick=()=>exportDupes(list);
   $('dupx').title='Download the '+list.length+' product'+(list.length===1?'':'s')+' in this list as an Excel file';
+  $('dupp').onclick=()=>exportDupesPdf(list,$('dupf').selectedOptions[0].textContent);
+  $('dupp').title='Download a print-ready PDF of these '+list.length+' product'+(list.length===1?'':'s')+': one page per box, with tick boxes';
   $('dupf').onchange=e=>{ dupState.f=e.target.value; dupState.show=30; openDupes(); };
   $('dupq').onchange=e=>{ dupState.q=e.target.value; dupState.show=30; openDupes(); };
   const row=r=>`<div class="dupe"><span>${r.job===NOORIG?'Not original date':'Added '+fdate(r.ts)}${r.manual?' &middot; manual':''}${r.from?' &middot; moved in':''}${noteOf(r)?' &middot; note: '+esc(noteOf(r).text):''}</span><button data-rm="${esc(r.k)}">Remove from ${esc(r.box)}</button></div>`;
@@ -1173,7 +1253,7 @@ const HELP={
   ['How do I delete a box?','Open the box and tap <b>Delete box</b>. The app asks “Are you sure?” and tells you how many samples are in it. Tap <b>Yes, delete</b> to confirm. The box disappears for everyone. Changed your mind? Settings → Recent box changes → Undo. To keep the samples, merge the box into another one instead.'],
   ['How do I delete one product from a box?','Open the box, find the product (the box has its own search field), and tap <b>Delete</b> on its row. The app asks “Are you sure?”. The product disappears for everyone. Changed your mind? Tap <b>Restore</b> on that row. Use <b>Pulled</b> instead when the product moved to another box. To delete many at once, tick the boxes in the first column (the top box selects everything shown) and tap <b>Delete selected</b>. After deleting, tap <b>Refresh</b> in the box window to hide the deleted products and see only what is left (tap <b>Show deleted</b> to bring the list back). When you are sure, tap <b>Commit N deleted</b> to make the deletions final: those products will not show in that box again and cannot be restored. (Settings has <b>Commit all deletions</b> for every box at once.)'],
   ['How do I add a note to a product?','Open the box and tap <b>+ Note</b> on the product’s row, type your note and tap <b>Save</b> (or press Enter). Tap <b>Edit</b> to change it, or <b>Delete</b> inside the editor to remove it. Notes are shared with everyone, the box search also finds words inside notes, and the Excel export includes them. A note stays with that sample even if you move it to another box.'],
-  ['How do I find and clean up duplicate products?','Tap <b>Review duplicates</b> (or the “duplicate products” number at the top). Each entry is one product that is on hand more than once. For each one you can: <b>Keep only in [box]</b> (removes it from the other boxes, after asking), <b>Remove</b> one sample, <b>Open box</b>, or <b>Mark reviewed</b> if you want to keep them all (it comes back only if another copy is added). Use the filter to see just products in different boxes or several in one box. Inside any box, a gold “also in Box X” tag shows its duplicates. <b>Export to Excel</b> downloads the list you are looking at. Nothing changes until you press a button.'],
+  ['How do I find and clean up duplicate products?','Tap <b>Review duplicates</b> (or the “duplicate products” number at the top). Each entry is one product that is on hand more than once. For each one you can: <b>Keep only in [box]</b> (removes it from the other boxes, after asking), <b>Remove</b> one sample, <b>Open box</b>, or <b>Mark reviewed</b> if you want to keep them all (it comes back only if another copy is added). Use the filter to see just products in different boxes or several in one box. Inside any box, a gold “also in Box X” tag shows its duplicates. <b>Export to Excel</b> downloads the list you are looking at. <b>Export PDF</b> downloads a print-ready checklist of the same list: one page per box (Letter, black and white, easy on the printer) with each product, how many are in that box, where else it is, and tick boxes <b>Keep</b> / <b>Remove</b>. Open the PDF and print it, then take each page to its box. Nothing changes until you press a button.'],
   ['How do I update the data from the Google Sheet?','Copy the same 4 columns from the sheet as always into an Excel file, then drag it onto the dotted box at the top (or tap it to choose the file). The app only reads those columns and ignores everything else. It asks you to confirm because it <b>replaces the data for everyone</b>. Pulls and manual entries are kept.'],
   ['Some entries are missing','Only locations that look like a box (Box 12, Bx12, Calchef 2…) are counted. Things like “Given to Johana” or “1st pass” are ignored. See the line “Location entries ignored” at the bottom. Typing “Box 12” the same way every time works best.'],
   ['What does “Offline – changes waiting” mean?','Your phone or PC lost the connection. Your changes are saved on the device and will send automatically when it is back. Keep the page open until it says “synced”.'],
@@ -1197,7 +1277,7 @@ const HELP={
   ['¿Cómo borro una caja?','Abre la caja y toca <b>Delete box</b>. La app pregunta “¿Estás seguro?” y dice cuántas muestras tiene. Toca <b>Yes, delete</b> para confirmar. La caja desaparece para todos. ¿Te arrepentiste? Settings → Recent box changes → Undo. Para conservar las muestras, junta la caja con otra.'],
   ['¿Cómo borro un solo producto de una caja?','Abre la caja, busca el producto (la caja tiene su propio campo de búsqueda) y toca <b>Delete</b> en su fila. La app pregunta “¿Estás seguro?”. El producto desaparece para todos. ¿Te arrepentiste? Toca <b>Restore</b> en esa fila. Usa <b>Pulled</b> cuando el producto se movió a otra caja. Para borrar varios a la vez, marca las casillas de la primera columna (la de arriba selecciona todo lo que se ve) y toca <b>Delete selected</b>. Después de borrar, toca <b>Refresh</b> en la ventana de la caja para ocultar los productos borrados y ver solo los que quedan (toca <b>Show deleted</b> para verlos otra vez). Cuando estés seguro, toca <b>Commit N deleted</b> para dejar los borrados como definitivos: esos productos no volverán a aparecer en esa caja y no se pueden restaurar. (En Settings, <b>Commit all deletions</b> lo hace para todas las cajas.)'],
   ['¿Cómo agrego una nota a un producto?','Abre la caja y toca <b>+ Note</b> en la fila del producto, escribe tu nota y toca <b>Save</b> (o presiona Enter). Toca <b>Edit</b> para cambiarla o <b>Delete</b> dentro del editor para quitarla. Las notas las ve todo el mundo, la búsqueda de la caja también encuentra palabras de las notas y el Excel las incluye. La nota se queda con esa muestra aunque la muevas a otra caja.'],
-  ['¿Cómo encuentro y limpio productos duplicados?','Toca <b>Review duplicates</b> (o el número “duplicate products” arriba). Cada entrada es un producto que está más de una vez. Puedes: <b>Keep only in [caja]</b> (lo quita de las otras cajas, después de preguntar), <b>Remove</b> una muestra, <b>Open box</b>, o <b>Mark reviewed</b> si quieres dejarlos todos. El filtro muestra solo los de cajas distintas o varios en una caja. Dentro de una caja, la etiqueta dorada “also in Box X” muestra sus duplicados. <b>Export to Excel</b> descarga la lista que estás viendo. Nada cambia hasta que toques un botón.'],
+  ['¿Cómo encuentro y limpio productos duplicados?','Toca <b>Review duplicates</b> (o el número “duplicate products” arriba). Cada entrada es un producto que está más de una vez. Puedes: <b>Keep only in [caja]</b> (lo quita de las otras cajas, después de preguntar), <b>Remove</b> una muestra, <b>Open box</b>, o <b>Mark reviewed</b> si quieres dejarlos todos. El filtro muestra solo los de cajas distintas o varios en una caja. Dentro de una caja, la etiqueta dorada “also in Box X” muestra sus duplicados. <b>Export to Excel</b> descarga la lista que estás viendo. <b>Export PDF</b> descarga una lista lista para imprimir: una página por caja (tamaño Letter, blanco y negro, ahorra tinta) con cada producto, cuántos hay en esa caja, en qué otra caja está, y casillas <b>Keep</b> / <b>Remove</b> para marcar. Abre el PDF, imprímelo y lleva cada hoja a su caja. Nada cambia hasta que toques un botón.'],
   ['¿Cómo actualizo los datos?','Copia las mismas 4 columnas de siempre a un archivo de Excel y arrástralo al cuadro punteado de arriba. La app solo lee esas columnas. Te pide confirmar porque <b>cambia los datos para todos</b>. Los Pulled y las muestras manuales se conservan.'],
   ['Faltan algunas entradas','Solo se cuentan ubicaciones que parecen una caja (Box 12, Bx12, Calchef 2…). “Given to Johana” o “1st pass” se ignoran (ver abajo “Location entries ignored”). Escribe “Box 12” siempre igual.'],
   ['¿Qué significa “Offline – changes waiting”?','Se perdió la conexión. Tus cambios están guardados y se envían solos cuando regrese. Deja la página abierta hasta que diga “synced”.'],
@@ -1485,7 +1565,7 @@ function throwAwayList(){
     const jobs=[...new Set(all.filter(r=>r.item===item&&r.box===n&&isPulled(r)&&!r.from).map(r=>r.job).filter(j=>j&&j!==NOORIG))].join(' / ');
     out.push({item,box:n,job:jobs||job||'',keep:live[item]?[...live[item]].sort().join(', '):'(deleted everywhere: not kept in any box)'});
   });
-  const bn=b=>{ const x=normLoc(b); return [x.series==='Box'?0:1,parseInt(String(x.box).replace(/\D+/g,''),10)||0]; };
+  const bn=b=>{ const x=normLoc(b); return [x.series&&x.series!=='Box'?1:0,parseInt(String(x.box).replace(/\D+/g,''),10)||9999]; };
   out.sort((a,b)=>{ const x=bn(a.box),y=bn(b.box); return x[0]-y[0]||x[1]-y[1]||String(a.item).localeCompare(String(b.item),undefined,{numeric:true}); });
   return {out,havePaper:paper.length>0};
 }
@@ -1497,12 +1577,15 @@ function openThrowAway(){
   $('dbody').innerHTML=`<p class="sub">Products the paper count says are <b>physically</b> in a box, but that you have deleted or moved out of that box here. Take each one out of the box named, so the shelves match the app. This list only reads; it changes nothing.</p>
     ${havePaper?'':'<p class="sub" style="color:var(--danger)">No paper count is loaded on this device yet. Open <b>Reconcile</b>, load the CSV and tap <b>Check it</b> once; then come back here.</p>'}
     <p><b>${out.length}</b> product${out.length===1?'':'s'} to take out of <b>${Object.keys(by).length}</b> box${Object.keys(by).length===1?'':'es'}.
-    <button class="sm pri" id="thdl" ${out.length?'':'disabled'}>Download (Excel)</button> <button class="sm" id="thcp" ${out.length?'':'disabled'}>Copy</button> <button class="sm" id="thpr" ${out.length?'':'disabled'}>Print</button></p>
+    <button class="sm pri" id="thdl" ${out.length?'':'disabled'}>Download (Excel)</button> <button class="sm" id="thcp" ${out.length?'':'disabled'}>Copy</button> <button class="sm" id="thpr" ${out.length?'':'disabled'}>Print</button> <button class="sm pri" id="thpdf" ${out.length?'':'disabled'}>Download (PDF)</button></p>
     ${Object.keys(by).map(b=>`<details open><summary><b>${esc(b)} · take out ${by[b].length}</b></summary>${by[b].map(x=>`<div class="sug"><span style="font-family:var(--mono)">${esc(x.item)}</span><span class="sub">job ${esc(x.job||'-')} · keep in ${esc(x.keep)}</span></div>`).join('')}</details>`).join('')}`;
   if(!$('dlg').open) $('dlg').showModal();
   $('thdl').onclick=()=>{ try{ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob(['﻿'+csv()],{type:'text/csv'})); a.download='throw_away_list.csv'; document.body.appendChild(a); a.click(); a.remove(); }catch(e){ alert('Could not download: '+e.message); } };
   $('thcp').onclick=async()=>{ try{ await navigator.clipboard.writeText(csv()); $('thcp').textContent='Copied'; }catch(e){ alert('Could not copy.'); } };
   $('thpr').onclick=()=>window.print();
+  $('thpdf').onclick=()=>{ const ds=new Date().toISOString().slice(0,10), by2=new Map(); out.forEach(x=>{ if(!by2.has(x.box)) by2.set(x.box,[]); by2.get(x.box).push({cells:[String(x.item),x.job||'-',x.keep,''],note:''}); });
+    pdfByBox({title:'Throw-away list by box',sub:'Throw-away list - '+out.length+' product'+(out.length===1?'':'s')+' to take out of '+by2.size+' box'+(by2.size===1?'':'es'),hint:'Take each product out of this box, then tick the box. Keep in = where it stays.',footer:'Sample Box Tracker - '+ds,file:'Throw-away list by box - '+ds+'.pdf',
+      cols:[{h:'Product #',w:84,bold:true},{h:'Job',w:64},{h:'Keep in',w:'*'},{h:'Taken out',w:60,check:true}],sections:[...by2.keys()].sort(boxNameSort).map(b=>({name:b,rows:by2.get(b)}))}); };
 }
 if(WRITER_URL){ const tb=document.getElementById('throwBtn'); if(tb){ tb.hidden=false; tb.onclick=openThrowAway; } }
 
